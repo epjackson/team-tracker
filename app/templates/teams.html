@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Teams — Team Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-people me-2"></i>Teams</h2>
+    <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addTeamModal">
+        <i class="bi bi-plus-circle me-1"></i>Add Team
+    </button>
+</div>
+
+<!-- Add Team Modal -->
+<div class="modal fade" id="addTeamModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('add_team') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New Team</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Team Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g. Riverside A">
+                    </div>
+                    <div class="mb-3">
+                        <label for="division_id" class="form-label">Division (optional)</label>
+                        <select class="form-select" id="division_id" name="division_id">
+                            <option value="">— No division —</option>
+                            {% for league in leagues %}
+                                {% for division in league.divisions.all() %}
+                                <option value="{{ division.id }}">{{ league.name }} — {{ division.name }}</option>
+                                {% endfor %}
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Assign this team to a league division, or leave unassigned.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-tennis">Create Team</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if teams %}
+<div class="row g-4">
+    {% for team in teams %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people-fill me-2"></i>{{ team.name }}</span>
+                <span class="badge bg-light text-dark">{{ (team.players|list)|length }} players</span>
+            </div>
+            <div class="card-body">
+                {% if team.division %}
+                <div class="mb-3">
+                    <span class="badge bg-info">{{ team.division.league.name }} — {{ team.division.name }}</span>
+                </div>
+                {% endif %}
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <div class="text-muted small">Home fixtures</div>
+                        <div class="fw-bold">{{ (team.home_fixtures|list)|length }}</div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Away fixtures</div>
+                        <div class="fw-bold">{{ (team.away_fixtures|list)|length }}</div>
+                    </div>
+                </div>
+                <div class="d-flex gap-1">
+                    <a href="{{ url_for('team_detail', team_id=team.id) }}" class="btn btn-tennis flex-grow-1">
+                        View <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteTeamModal{{ team.id }}" title="Delete team">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Delete Team Modals -->
+{% for team in teams %}
+<div class="modal fade" id="deleteTeamModal{{ team.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('delete_team', team_id=team.id) }}">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title text-white">Delete Team</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
+                    <p>Are you sure you want to delete the team <strong>"{{ team.name }}"</strong>?</p>
+                    <p class="text-muted">This will delete:</p>
+                    <ul class="text-muted">
+                        <li>The team "{{ team.name }}"</li>
+                        <li>All fixtures involving this team ({{ (team.home_fixtures|list)|length + (team.away_fixtures|list)|length }} total)</li>
+                        <li>All associated player match records</li>
+                    </ul>
+                    <p class="text-muted">Player profiles will be preserved.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete Team</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-people" style="font-size: 3rem; color: #ccc;"></i>
+        <h5 class="mt-3 text-muted">No teams yet</h5>
+        <p class="text-muted">Add your first team to get started, or upload a scoresheet to auto-create teams.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
