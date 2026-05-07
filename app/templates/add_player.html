@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Add Player — Team Tracker{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+    <a href="{{ url_for('player_summary') }}" class="text-white-50 text-decoration-none me-3">
+        <i class="bi bi-arrow-left me-1"></i>Players
+    </a>
+    <h2 class="text-white mb-0"><i class="bi bi-person-plus me-2"></i>Add Player</h2>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                Player Details
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin_add_player_details') }}">
+                    <div class="row g-3">
+
+                        <div class="col-md-6">
+                            <label for="first_name" class="form-label">First Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="first_name" name="first_name" required autofocus>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="last_name" class="form-label">Last Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="last_name" name="last_name" required>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="gender" class="form-label">Gender <span class="text-danger">*</span></label>
+                            <select class="form-select" id="gender" name="gender" required>
+                                <option value="">Select…</option>
+                                <option value="M">M — Male</option>
+                                <option value="F">F — Female</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="membership_status" class="form-label">Membership Status <span class="text-danger">*</span></label>
+                            <select class="form-select" id="membership_status" name="membership_status" required>
+                                <option value="">Select…</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="interest_team_play" class="form-label">Interest in Team Play <span class="text-danger">*</span></label>
+                            <select class="form-select" id="interest_team_play" name="interest_team_play" required>
+                                <option value="">Select…</option>
+                                <option value="yes">Yes</option>
+                                <option value="no">No</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="lta_number" class="form-label">LTA Number <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="lta_number" name="lta_number" required>
+                        </div>
+
+                        {# ── Frozen fields ────────────────────────────────── #}
+                        <div class="col-md-6">
+                            <label for="contact_telephone" class="form-label d-flex align-items-center gap-2">
+                                Contact Telephone
+                                <span class="badge bg-secondary" style="font-size:0.65rem; font-weight:500; letter-spacing:.5px;">
+                                    <i class="bi bi-lock me-1"></i>Coming soon
+                                </span>
+                            </label>
+                            <input type="text" class="form-control bg-light text-muted" id="contact_telephone"
+                                   name="contact_telephone" disabled placeholder="Not yet available">
+                        </div>
+
+                        <div class="col-12">
+                            <label for="miscellaneous" class="form-label d-flex align-items-center gap-2">
+                                Miscellaneous
+                                <span class="badge bg-secondary" style="font-size:0.65rem; font-weight:500; letter-spacing:.5px;">
+                                    <i class="bi bi-lock me-1"></i>Coming soon
+                                </span>
+                            </label>
+                            <textarea class="form-control bg-light text-muted" id="miscellaneous"
+                                      name="miscellaneous" rows="2" disabled placeholder="Not yet available"></textarea>
+                        </div>
+
+                    </div>
+
+                    <div class="mt-4 d-flex justify-content-between align-items-center">
+                        <a href="{{ url_for('player_summary') }}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-tennis">
+                            <i class="bi bi-person-check me-1"></i>Add Player
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
