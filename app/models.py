@@ -124,6 +124,13 @@ class LeagueRestriction(db.Model):
     max_matches_per_team = db.Column(
         db.Integer, nullable=False, default=0, comment="Deprecated: no longer used"
     )
+    early_season_weeks = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        comment="Number of weeks at season start where a player may only play one match per week."
+        " 0 = disabled",
+    )
     team_commitment_threshold = db.Column(
         db.Integer,
         nullable=False,
@@ -186,17 +193,29 @@ class Player(db.Model):
     __tablename__ = "players"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
+    first_name = db.Column(db.String(60), nullable=False)
+    last_name = db.Column(db.String(60), nullable=False)
+    gender = db.Column(db.String(1), nullable=False)  # 'M' or 'F'
+    membership_status = db.Column(db.String(10), nullable=False)  # 'active' or 'inactive'
+    interest_team_play = db.Column(db.String(3), nullable=False)  # 'yes' or 'no'
+    lta_number = db.Column(db.String(30), nullable=False)
+    contact_telephone = db.Column(db.String(30), nullable=True)
+    miscellaneous = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     match_results = db.relationship("PlayerMatchResult", backref="player", lazy="dynamic")
 
     def __repr__(self):
         """Return string representation of Player."""
-        return f"<Player {self.name}>"
+        return f"<Player {self.first_name} {self.last_name}>"
+
+    @property
+    def name(self):
+        """Return full name."""
+        return f"{self.first_name} {self.last_name}"
 
     def appearances_for_team_in_league(self, team_id, league_id):
-        """Get count of matches played for a team in a league."""
+        """Return number of fixtures this player has appeared in for given team and league."""
         return (
             PlayerMatchResult.query.join(Rubber)
             .join(Fixture)
@@ -210,7 +229,7 @@ class Player(db.Model):
                     )
                     if False
                     else True
-                ),  # handled below
+                ),
             )
             .count()
         )
@@ -227,8 +246,10 @@ class Fixture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     league_id = db.Column(db.Integer, db.ForeignKey("leagues.id"), nullable=True)
-    home_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=False)
-    away_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=False)
+    home_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
+    away_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
+    home_team_name = db.Column(db.String(200), nullable=True)
+    away_team_name = db.Column(db.String(200), nullable=True)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
     source_image = db.Column(db.String(512), nullable=True)  # path to uploaded scoresheet image
