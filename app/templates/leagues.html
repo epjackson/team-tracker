@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Leagues — Team Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-trophy me-2"></i>Leagues</h2>
+    <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addLeagueModal">
+        <i class="bi bi-plus-circle me-1"></i>Add League
+    </button>
+</div>
+
+<!-- Add League Modal -->
+<div class="modal fade" id="addLeagueModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('add_league') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New League</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">League Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g. Summer League">
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description (optional)</label>
+                        <textarea class="form-control" id="description" name="description" rows="2" placeholder="e.g. Saturday morning doubles league"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="max_matches_per_team" class="form-label">Max Matches Per Player Per Team</label>
+                        <input type="number" class="form-control" id="max_matches_per_team" name="max_matches_per_team" min="0" placeholder="Leave empty or 0 for unlimited">
+                        <div class="form-text">Restricts how many rubbers a player can play for one team in this league. Set to 0 or leave empty for no limit.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-tennis">Create League</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if leagues %}
+<div class="row g-4">
+    {% for league in leagues %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-trophy-fill me-2"></i>{{ league.name }}</span>
+                <span class="badge bg-light text-dark">{{ (league.divisions|list)|length }} divisions</span>
+            </div>
+            <div class="card-body">
+                {% if league.description %}
+                <p class="text-muted small mb-3">{{ league.description }}</p>
+                {% endif %}
+                {% set restriction = league.restrictions.first() %}
+                {% if restriction and restriction.team_commitment_threshold > 0 %}
+                <div class="mb-3">
+                    <span class="badge bg-warning text-dark">
+                        <i class="bi bi-link-45deg me-1"></i>Committed after {{ restriction.team_commitment_threshold }} fixtures
+                    </span>
+                </div>
+                {% else %}
+                <div class="mb-3">
+                    <span class="badge bg-success">
+                        <i class="bi bi-check-circle me-1"></i>No restrictions
+                    </span>
+                </div>
+                {% endif %}
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <div class="text-muted small">Divisions</div>
+                        <div class="fw-bold">{{ (league.divisions|list)|length }}</div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Fixtures</div>
+                        <div class="fw-bold">{{ (league.fixtures|list)|length }}</div>
+                    </div>
+                </div>
+                <div class="d-flex gap-1">
+                    <a href="{{ url_for('league_detail', league_id=league.id) }}" class="btn btn-tennis flex-grow-1">
+                        View <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteLeagueModal{{ league.id }}" title="Delete league">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Delete League Modals -->
+{% for league in leagues %}
+<div class="modal fade" id="deleteLeagueModal{{ league.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('delete_league', league_id=league.id) }}">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title text-white">Delete League</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
+                    <p>Are you sure you want to delete the league <strong>"{{ league.name }}"</strong>?</p>
+                    <p class="text-muted">This will delete:</p>
+                    <ul class="text-muted">
+                        <li>The league and all its {{ (league.divisions|list)|length }} division(s)</li>
+                        <li>All teams in those divisions</li>
+                        <li>All {{ (league.fixtures|list)|length }} fixture(s) in this league</li>
+                    </ul>
+                    <p class="text-muted">Player records will be preserved where possible.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Delete League</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-trophy" style="font-size: 3rem; color: #ccc;"></i>
+        <h5 class="mt-3 text-muted">No leagues yet</h5>
+        <p class="text-muted">Create a league to organize your teams and fixtures by division.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

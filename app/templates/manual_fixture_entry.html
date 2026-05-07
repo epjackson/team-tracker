@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Manual Fixture Entry — Team Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <a href="{{ url_for('list_fixtures') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to Fixtures</a>
+        <h2 class="text-white mb-0"><i class="bi bi-pencil-square me-2"></i>Manual Fixture Entry</h2>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-pencil me-2"></i>Enter Fixture Details
+    </div>
+    <div class="card-body">
+        <form method="POST" id="fixtureForm">
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <label for="fixture_date" class="form-label">Fixture Date *</label>
+                    <input type="date" class="form-control" id="fixture_date" name="fixture_date" required>
+                </div>
+                <div class="col-md-3">
+                    <label for="league_id" class="form-label">League (optional)</label>
+                    <select class="form-select" id="league_id" name="league_id">
+                        <option value="">— No league —</option>
+                        {% for league in leagues %}
+                        <option value="{{ league.id }}">{{ league.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="home_team_id" class="form-label">Home Team *</label>
+                    <select class="form-select" id="home_team_id" name="home_team_id" required>
+                        <option value="">— Select Team —</option>
+                        {% for team in teams %}
+                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="away_team_id" class="form-label">Away Team *</label>
+                    <select class="form-select" id="away_team_id" name="away_team_id" required>
+                        <option value="">— Select Team —</option>
+                        {% for team in teams %}
+                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Rubbers Section -->
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-list-ol me-2"></i>Rubbers</h5>
+                    <button type="button" class="btn btn-sm btn-outline-tennis" id="addRubberBtn">
+                        <i class="bi bi-plus-circle me-1"></i>Add Rubber
+                    </button>
+                </div>
+
+                <div id="rubbersContainer"></div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-tennis">
+                    <i class="bi bi-check-circle me-1"></i>Save Fixture
+                </button>
+                <a href="{{ url_for('list_fixtures') }}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let rubberCount = 0;
+
+function addRubber() {
+    const container = document.getElementById('rubbersContainer');
+    const rubberHtml = `
+        <div class="card mb-3 rubber-card" data-index="${rubberCount}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-diagram-3 me-2"></i>Rubber #${rubberCount + 1}</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRubber(${rubberCount})">
+                    <i class="bi bi-trash me-1"></i>Remove
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" name="rubber_${rubberCount}_type" value="singles">
+                            <option value="singles">Singles</option>
+                            <option value="doubles">Doubles</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Home Players (comma-separated)</label>
+                        <input type="text" class="form-control" name="rubber_${rubberCount}_home_players"
+                               placeholder="e.g. John Doe, Jane Smith">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Away Players (comma-separated)</label>
+                        <input type="text" class="form-control" name="rubber_${rubberCount}_away_players"
+                               placeholder="e.g. Bob Wilson, Alice Johnson">
+                    </div>
+                </div>
+
+                <!-- Set Scores -->
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <label class="form-label">Set Scores</label>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted d-block mb-2">Set 1</small>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set1"
+                                   min="0" max="7" placeholder="H">
+                            <span class="input-group-text">-</span>
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set1"
+                                   min="0" max="7" placeholder="A">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted d-block mb-2">Set 2</small>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set2"
+                                   min="0" max="7" placeholder="H">
+                            <span class="input-group-text">-</span>
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set2"
+                                   min="0" max="7" placeholder="A">
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <small class="text-muted d-block mb-2">Set 3 (if needed)</small>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set3"
+                                   min="0" max="7" placeholder="H">
+                            <span class="input-group-text">-</span>
+                            <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set3"
+                                   min="0" max="7" placeholder="A">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', rubberHtml);
+    rubberCount++;
+    document.querySelector('input[name="rubber_count"]').value = rubberCount;
+}
+
+function removeRubber(index) {
+    const card = document.querySelector(`[data-index="${index}"]`);
+    if (card) {
+        card.remove();
+        rubberCount--;
+        document.querySelector('input[name="rubber_count"]').value = rubberCount;
+    }
+}
+
+document.getElementById('addRubberBtn').addEventListener('click', addRubber);
+
+// Initialize with one rubber on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('fixtureForm');
+    const hiddenInput = document.createElement('input');
+    hiddenInput.type = 'hidden';
+    hiddenInput.name = 'rubber_count';
+    hiddenInput.value = '0';
+    container.appendChild(hiddenInput);
+    addRubber();
+});
+</script>
+
+<style>
+.rubber-card {
+    background: #f8f9fa;
+    border-left: 4px solid #1a6b50;
+}
+</style>
+{% endblock %}
