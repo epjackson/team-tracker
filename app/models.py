@@ -1,6 +1,6 @@
 """Database models for the tennis team recording app."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from flask_sqlalchemy import SQLAlchemy
 
@@ -30,6 +30,7 @@ class League(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False, unique=True)
     description = db.Column(db.Text, nullable=True)
+    start_date = db.Column(db.Date, nullable=True, comment="Monday that starts Round 1")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     divisions = db.relationship(
@@ -252,6 +253,7 @@ class Fixture(db.Model):
     away_team_name = db.Column(db.String(200), nullable=True)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
+    round_label = db.Column(db.String(30), nullable=True)
     source_image = db.Column(db.String(512), nullable=True)  # path to uploaded scoresheet image
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -312,6 +314,33 @@ class PlayerMatchResult(db.Model):
     def __repr__(self):
         """Return string representation of PlayerMatchResult."""
         return f"<PlayerMatchResult player={self.player_id} rubber={self.rubber_id}>"
+
+
+# ── Helper: round label ──────────────────────────────────────────────────
+
+
+def fixture_round_label(fixture_date: date, league_start_date) -> str | None:
+    """Return the round label for a fixture given the league start date.
+
+    Schedule: Rounds 1-4, one catch-up week, Rounds 5-8, one catch-up week,
+    then Rounds 9+ continue without further gaps.
+
+    Returns 'Round N', 'Catch-up Week', or None if no start date or date is
+    before the season begins.
+    """
+    if not league_start_date or fixture_date < league_start_date:
+        return None
+    week = (fixture_date - league_start_date).days // 7
+    if week < 4:
+        return f"Round {week + 1}"
+    elif week == 4:
+        return "Catch-up Week"
+    elif week < 9:
+        return f"Round {week}"
+    elif week == 9:
+        return "Catch-up Week"
+    else:
+        return f"Round {week - 1}"
 
 
 # ── Helper: eligibility check ─────────────────────────────────────────────

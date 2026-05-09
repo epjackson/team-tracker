@@ -1,7 +1,7 @@
 """Flask application factory and route definitions."""
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import inspect as sa_inspect
@@ -19,7 +19,30 @@ from .models import (
     Team,
     check_player_eligibility,
     db,
+    fixture_round_label,
 )
+
+
+def _migrate_fixture_round_label(db):
+    """Add round_label column to fixtures table if missing."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("fixtures"):
+        return
+    existing = {c["name"] for c in inspector.get_columns("fixtures")}
+    if "round_label" not in existing:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE fixtures ADD COLUMN round_label VARCHAR(30)"))
+
+
+def _migrate_league_start_date(db):
+    """Add start_date column to leagues table if missing."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("leagues"):
+        return
+    existing = {c["name"] for c in inspector.get_columns("leagues")}
+    if "start_date" not in existing:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leagues ADD COLUMN start_date DATE"))
 
 
 def _migrate_fixture_team_names(db):
@@ -88,6 +111,10 @@ def create_app(config=None):
         db.create_all()
         _migrate_away_team_nullable(db)
         _migrate_fixture_team_names(db)
+        _migrate_league_start_date(db)
+        _migrate_fixture_round_label(db)
+
+    app.jinja_env.globals["fixture_round_label"] = fixture_round_label
 
     # ── Leagues ─────────────────────────────────────────────────────────
 
@@ -102,14 +129,22 @@ def create_app(config=None):
         description = request.form.get("description", "").strip()
         early_season_weeks = request.form.get("early_season_weeks", type=int) or 0
         team_commitment_threshold = request.form.get("team_commitment_threshold", type=int) or 0
+        start_date_str = request.form.get("start_date", "").strip()
         if not name:
             flash("League name is required.", "error")
             return redirect(url_for("list_leagues"))
         if League.query.filter_by(name=name).first():
             flash(f"League '{name}' already exists.", "error")
             return redirect(url_for("list_leagues"))
+        start_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                flash("Invalid start date format.", "error")
+                return redirect(url_for("list_leagues"))
         num_divisions = request.form.get("num_divisions", type=int) or 1
-        league = League(name=name, description=description or None)
+        league = League(name=name, description=description or None, start_date=start_date)
         db.session.add(league)
         db.session.flush()
         for i in range(1, num_divisions + 1):
@@ -131,12 +166,14 @@ def create_app(config=None):
         divisions = league.divisions.order_by(Division.name).all()
         fixtures = Fixture.query.filter_by(league_id=league.id).order_by(Fixture.date.desc()).all()
         restriction = LeagueRestriction.query.filter_by(league_id=league.id).first()
+        all_teams = Team.query.order_by(Team.name).all()
         return render_template(
             "league_detail.html",
             league=league,
             divisions=divisions,
             fixtures=fixtures,
             restriction=restriction,
+            all_teams=all_teams,
         )
 
     @app.route("/leagues/<int:league_id>/divisions", methods=["POST"])
@@ -188,6 +225,7 @@ def create_app(config=None):
         description = request.form.get("description", "").strip()
         early_season_weeks = request.form.get("early_season_weeks", type=int) or 0
         team_commitment_threshold = request.form.get("team_commitment_threshold", type=int) or 0
+        start_date_str = request.form.get("start_date", "").strip()
 
         if not name:
             flash("League name is required.", "error")
@@ -197,8 +235,17 @@ def create_app(config=None):
             flash(f"League '{name}' already exists.", "error")
             return redirect(url_for("league_detail", league_id=league_id))
 
+        start_date = None
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                flash("Invalid start date format.", "error")
+                return redirect(url_for("league_detail", league_id=league_id))
+
         league.name = name
         league.description = description or None
+        league.start_date = start_date
 
         restriction = LeagueRestriction.query.filter_by(league_id=league_id).first()
         if restriction:
@@ -253,6 +300,23 @@ def create_app(config=None):
         flash(f"Division '{name}' updated.", "success")
         return redirect(url_for("league_detail", league_id=league_id))
 
+    @app.route("/divisions/<int:division_id>/assign-teams", methods=["POST"])
+    def assign_teams_to_division(division_id):
+        """Assign selected teams to this division, unassigning any that were deselected."""
+        division = Division.query.get_or_404(division_id)
+        league_id = division.league_id
+        selected_ids = set(request.form.getlist("team_ids", type=int))
+        for team in division.teams.all():
+            if team.id not in selected_ids:
+                team.division_id = None
+        for team_id in selected_ids:
+            team = Team.query.get(team_id)
+            if team:
+                team.division_id = division_id
+        db.session.commit()
+        flash(f"Teams updated for '{division.name}'.", "success")
+        return redirect(url_for("league_detail", league_id=league_id))
+
     @app.route("/divisions/<int:division_id>/delete", methods=["POST"])
     def delete_division(division_id):
         division = Division.query.get_or_404(division_id)
@@ -268,20 +332,32 @@ def create_app(config=None):
     @app.route("/")
     def index():
         today = date.today()
+        this_week_start = today - timedelta(days=today.weekday())
+        this_week_end = this_week_start + timedelta(days=6)
+        next_week_start = this_week_start + timedelta(weeks=1)
+        next_week_end = next_week_start + timedelta(days=6)
+
         all_fixtures = Fixture.query.all()
-        upcoming = (
-            Fixture.query.filter(Fixture.date >= today).order_by(Fixture.date.asc()).limit(3).all()
+        this_week = (
+            Fixture.query.filter(Fixture.date >= this_week_start, Fixture.date <= this_week_end)
+            .order_by(Fixture.date.asc())
+            .all()
         )
-        completed = (
-            Fixture.query.filter(Fixture.date < today).order_by(Fixture.date.desc()).limit(3).all()
+        next_week = (
+            Fixture.query.filter(Fixture.date >= next_week_start, Fixture.date <= next_week_end)
+            .order_by(Fixture.date.asc())
+            .all()
         )
         teams = Team.query.order_by(Team.name).all()
         leagues = League.query.order_by(League.name).all()
         return render_template(
             "index.html",
             fixtures=all_fixtures,
-            upcoming=upcoming,
-            completed=completed,
+            this_week=this_week,
+            next_week=next_week,
+            this_week_start=this_week_start,
+            next_week_start=next_week_start,
+            today=today,
             teams=teams,
             leagues=leagues,
         )
@@ -744,12 +820,23 @@ def create_app(config=None):
                                 break
                     home_id = our_team_id if our_side == "home" else opponent_id
                     away_id = our_team_id if our_side == "away" else opponent_id
+                    inferred_league_id = None
+                    inferred_start_date = None
+                    for tid in (home_id, away_id):
+                        if tid:
+                            t = Team.query.get(tid)
+                            if t and t.division and t.division.league:
+                                inferred_league_id = t.division.league_id
+                                inferred_start_date = t.division.league.start_date
+                                break
                     fixture = Fixture(
                         date=fixture_date,
                         home_team_id=home_id,
                         away_team_id=away_id,
                         home_team_name=home_str or None,
                         away_team_name=away_str or None,
+                        league_id=inferred_league_id,
+                        round_label=fixture_round_label(fixture_date, inferred_start_date),
                     )
                     db.session.add(fixture)
                     db.session.flush()
@@ -799,12 +886,18 @@ def create_app(config=None):
                 home_team = Team.query.get_or_404(home_team_id)
                 away_team = Team.query.get_or_404(away_team_id)
 
+                league_obj = League.query.get(league_id) if league_id else None
+                computed_round = fixture_round_label(
+                    fixture_date, league_obj.start_date if league_obj else None
+                )
+
                 # Create fixture
                 fixture = Fixture(
                     date=fixture_date,
                     league_id=league_id,
                     home_team_id=home_team.id,
                     away_team_id=away_team.id,
+                    round_label=computed_round,
                 )
                 db.session.add(fixture)
                 db.session.flush()
@@ -942,17 +1035,18 @@ def create_app(config=None):
                                         league_id=league_id,
                                         season="2026",
                                     ).first()
-                        if not existing_commitment:
-                            commitment = PlayerTeamCommitment(
-                                player_id=player.id,
-                                team_id=team.id,
-                                league_id=league_id,
-                                season="2026",
-                            )
-                            db.session.add(commitment)
-                            eligibility_warnings.append(
-                                f"✅ {player_name} committed to {team.name} " "for the season!"
-                            )
+                                    if not existing_commitment:
+                                        commitment = PlayerTeamCommitment(
+                                            player_id=player.id,
+                                            team_id=team.id,
+                                            league_id=league_id,
+                                            season="2026",
+                                        )
+                                        db.session.add(commitment)
+                                        eligibility_warnings.append(
+                                            f"✅ {player_name} committed to {team.name} "
+                                            "for the season!"
+                                        )
 
                         db.session.commit()
 
@@ -1011,6 +1105,17 @@ def create_app(config=None):
             fixture.league_id = league_id if league_id else None
             fixture.home_score = request.form.get("home_score", 0, type=int)
             fixture.away_score = request.form.get("away_score", 0, type=int)
+
+            # Use manually supplied label if provided, otherwise recompute from league start date
+            manual_label = request.form.get("round_label", "").strip()
+            if manual_label:
+                fixture.round_label = manual_label
+            else:
+                league_obj = League.query.get(league_id) if league_id else None
+                fixture.round_label = fixture_round_label(
+                    fixture_date, league_obj.start_date if league_obj else None
+                )
+
             db.session.commit()
             flash("Fixture updated.", "success")
             return redirect(url_for("fixture_detail", fixture_id=fixture_id))
@@ -1053,7 +1158,33 @@ def create_app(config=None):
     @app.route("/fixtures")
     def list_fixtures():
         fixtures = Fixture.query.order_by(Fixture.date.asc()).all()
-        return render_template("fixtures.html", fixtures=fixtures)
+        leagues = League.query.order_by(League.name).all()
+        return render_template("fixtures.html", fixtures=fixtures, leagues=leagues)
+
+    @app.route("/fixtures/bulk-assign-league", methods=["POST"])
+    def bulk_assign_league():
+        """Assign a league to selected fixtures and recompute their round labels."""
+        fixture_ids = request.form.getlist("fixture_ids", type=int)
+        league_id = request.form.get("league_id", type=int)
+        if not fixture_ids:
+            flash("No fixtures selected.", "warning")
+            return redirect(url_for("list_fixtures"))
+        league_obj = League.query.get(league_id) if league_id else None
+        updated = 0
+        for fid in fixture_ids:
+            fixture = Fixture.query.get(fid)
+            if fixture:
+                fixture.league_id = league_id or None
+                fixture.round_label = fixture_round_label(
+                    fixture.date, league_obj.start_date if league_obj else None
+                )
+                updated += 1
+        db.session.commit()
+        if league_obj:
+            flash(f"Assigned {updated} fixture(s) to {league_obj.name}.", "success")
+        else:
+            flash(f"Removed league from {updated} fixture(s).", "success")
+        return redirect(url_for("list_fixtures"))
 
     # ── API endpoints ───────────────────────────────────────────────────
 

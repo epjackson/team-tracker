@@ -5,6 +5,10 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="text-white mb-0"><i class="bi bi-journal-text me-2"></i>Fixtures</h2>
     <div class="d-flex gap-2">
+        <button id="bulk-assign-btn" type="button" class="btn btn-outline-light d-none"
+                data-bs-toggle="modal" data-bs-target="#bulkAssignModal">
+            <i class="bi bi-tag me-1"></i>Set League (<span class="selected-count-display">0</span>)
+        </button>
         <button id="bulk-delete-btn" type="button" class="btn btn-outline-danger d-none"
                 data-bs-toggle="modal" data-bs-target="#bulkDeleteModal">
             <i class="bi bi-trash me-1"></i>Delete selected (<span id="selected-count">0</span>)
@@ -12,9 +16,9 @@
         <a href="{{ url_for('import_ics') }}" class="btn btn-outline-light">
             <i class="bi bi-calendar-plus me-1"></i>Import Calendar
         </a>
-        <button class="btn btn-outline-light" disabled>
+        <a href="{{ url_for('manual_fixture_entry') }}" class="btn btn-outline-light">
             <i class="bi bi-pencil me-1"></i>Manual Entry
-        </button>
+        </a>
     </div>
 </div>
 
@@ -30,6 +34,7 @@
                             <input type="checkbox" id="select-all-fixtures" class="form-check-input" title="Select all">
                         </th>
                         <th>Date</th>
+                        <th>Round</th>
                         <th>Home Team</th>
                         <th>Score</th>
                         <th>Away Team</th>
@@ -46,6 +51,15 @@
                                    class="form-check-input fixture-check">
                         </td>
                         <td>{{ fixture.date.strftime('%d %b %Y') }}</td>
+                        <td>
+                            {% set _eff_league = fixture.league or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none) or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
+                            {% set display_round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none) %}
+                            {% if display_round %}
+                            <span class="badge bg-secondary">{{ display_round }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
                         <td class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</td>
                         <td class="text-center">
                             <span class="score-badge score-home me-1">{{ fixture.home_score }}</span>
@@ -95,6 +109,38 @@
 </div>
 {% endfor %}
 
+<!-- Bulk assign league modal -->
+<div class="modal fade" id="bulkAssignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="bulk-assign-form" method="POST" action="{{ url_for('bulk_assign_league') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Set League for Selected Fixtures</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Assign a league to <strong><span class="selected-count-display">0</span> fixture(s)</strong>. This will also recompute the round label from the league's start date.</p>
+                    <div class="mb-3">
+                        <label for="bulk-league-id" class="form-label">League</label>
+                        <select class="form-select" id="bulk-league-id" name="league_id">
+                            <option value="">— No League —</option>
+                            {% for league in leagues %}
+                            <option value="{{ league.id }}">
+                                {{ league.name }}{% if league.start_date %} (starts {{ league.start_date.strftime('%d %b %Y') }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-tennis">Apply</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Bulk delete confirmation modal -->
 <div class="modal fade" id="bulkDeleteModal" tabindex="-1">
     <div class="modal-dialog">
@@ -126,7 +172,8 @@ document.querySelectorAll('.fixture-row').forEach(function (row) {
 (function () {
     const checkboxes = document.querySelectorAll('.fixture-check');
     const selectAll = document.getElementById('select-all-fixtures');
-    const bulkBtn = document.getElementById('bulk-delete-btn');
+    const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+    const bulkAssignBtn = document.getElementById('bulk-assign-btn');
     const countSpan = document.getElementById('selected-count');
     const modalCount = document.getElementById('modal-count');
 
@@ -134,9 +181,11 @@ document.querySelectorAll('.fixture-row').forEach(function (row) {
         const n = document.querySelectorAll('.fixture-check:checked').length;
         countSpan.textContent = n;
         modalCount.textContent = n;
-        bulkBtn.classList.toggle('d-none', n === 0);
+        document.querySelectorAll('.selected-count-display').forEach(el => el.textContent = n);
+        bulkDeleteBtn.classList.toggle('d-none', n === 0);
+        bulkAssignBtn.classList.toggle('d-none', n === 0);
         selectAll.indeterminate = n > 0 && n < checkboxes.length;
-        selectAll.checked = n === checkboxes.length;
+        selectAll.checked = n === checkboxes.length && n > 0;
     }
 
     selectAll.addEventListener('change', function () {
@@ -148,6 +197,19 @@ document.querySelectorAll('.fixture-row').forEach(function (row) {
 
     document.getElementById('confirm-bulk-delete').addEventListener('click', function () {
         document.getElementById('bulk-delete-form').submit();
+    });
+
+    // Copy checked fixture IDs into the assign form before submitting
+    document.getElementById('bulkAssignModal').addEventListener('show.bs.modal', function () {
+        const form = document.getElementById('bulk-assign-form');
+        form.querySelectorAll('input[name="fixture_ids"]').forEach(el => el.remove());
+        document.querySelectorAll('.fixture-check:checked').forEach(function (cb) {
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'fixture_ids';
+            hidden.value = cb.value;
+            form.appendChild(hidden);
+        });
     });
 }());
 </script>
