@@ -150,7 +150,7 @@
                     <td>{{ result.rubber.fixture.date.strftime('%d %b %Y') }}</td>
                     <td>
                         <a href="{{ url_for('fixture_detail', fixture_id=result.rubber.fixture.id) }}" class="text-decoration-none">
-                            {{ result.rubber.fixture.home_team.name }} vs {{ result.rubber.fixture.away_team.name }}
+                            {{ result.rubber.fixture.home_team.name if result.rubber.fixture.home_team else '—' }} vs {{ result.rubber.fixture.away_team.name if result.rubber.fixture.away_team else '—' }}
                         </a>
                     </td>
                     <td>

@@ -1,9 +1,11 @@
 """Flask application factory and route definitions."""
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
 
 from .models import (
     Division,
@@ -18,6 +20,54 @@ from .models import (
     check_player_eligibility,
     db,
 )
+
+
+def _migrate_fixture_team_names(db):
+    """Add home_team_name / away_team_name columns to fixtures if missing."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("fixtures"):
+        return
+    existing = {c["name"] for c in inspector.get_columns("fixtures")}
+    with db.engine.begin() as conn:
+        for col in ("home_team_name", "away_team_name"):
+            if col not in existing:
+                conn.execute(text(f"ALTER TABLE fixtures ADD COLUMN {col} VARCHAR(200)"))
+
+
+def _migrate_away_team_nullable(db):
+    """Make fixtures home_team_id & away_team_id nullable if existing schema has them NOT NULL."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("fixtures"):
+        return
+    cols = {c["name"]: c for c in inspector.get_columns("fixtures")}
+    needs_migration = any(
+        not cols.get(name, {}).get("nullable")
+        for name in ("home_team_id", "away_team_id")
+        if name in cols
+    )
+    if not needs_migration:
+        return
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE fixtures_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    date DATE NOT NULL,
+                    league_id INTEGER REFERENCES leagues (id),
+                    home_team_id INTEGER REFERENCES teams (id),
+                    away_team_id INTEGER REFERENCES teams (id),
+                    home_score INTEGER,
+                    away_score INTEGER,
+                    source_image VARCHAR(512),
+                    created_at DATETIME
+                )
+                """
+            )
+        )
+        conn.execute(text("INSERT INTO fixtures_new SELECT * FROM fixtures"))
+        conn.execute(text("DROP TABLE fixtures"))
+        conn.execute(text("ALTER TABLE fixtures_new RENAME TO fixtures"))
 
 
 def create_app(config=None):
@@ -36,6 +86,8 @@ def create_app(config=None):
 
     with app.app_context():
         db.create_all()
+        _migrate_away_team_nullable(db)
+        _migrate_fixture_team_names(db)
 
     # ── Leagues ─────────────────────────────────────────────────────────
 
@@ -48,24 +100,27 @@ def create_app(config=None):
     def add_league():
         name = request.form.get("name", "").strip()
         description = request.form.get("description", "").strip()
-        max_matches = request.form.get("max_matches_per_team", type=int)
+        early_season_weeks = request.form.get("early_season_weeks", type=int) or 0
+        team_commitment_threshold = request.form.get("team_commitment_threshold", type=int) or 0
         if not name:
             flash("League name is required.", "error")
             return redirect(url_for("list_leagues"))
         if League.query.filter_by(name=name).first():
             flash(f"League '{name}' already exists.", "error")
             return redirect(url_for("list_leagues"))
+        num_divisions = request.form.get("num_divisions", type=int) or 1
         league = League(name=name, description=description or None)
         db.session.add(league)
         db.session.flush()
-        # Create restriction if specified
-        if max_matches and max_matches > 0:
-            restriction = LeagueRestriction(
+        for i in range(1, num_divisions + 1):
+            db.session.add(Division(name=f"Division {i}", league_id=league.id))
+        db.session.add(
+            LeagueRestriction(
                 league_id=league.id,
-                max_matches_per_team=max_matches,
-                description=f"Maximum {max_matches} matches per team in {name}",
+                early_season_weeks=early_season_weeks,
+                team_commitment_threshold=team_commitment_threshold,
             )
-            db.session.add(restriction)
+        )
         db.session.commit()
         flash(f"League '{name}' created.", "success")
         return redirect(url_for("list_leagues"))
@@ -131,18 +186,33 @@ def create_app(config=None):
         league = League.query.get_or_404(league_id)
         name = request.form.get("name", "").strip()
         description = request.form.get("description", "").strip()
+        early_season_weeks = request.form.get("early_season_weeks", type=int) or 0
+        team_commitment_threshold = request.form.get("team_commitment_threshold", type=int) or 0
 
         if not name:
             flash("League name is required.", "error")
             return redirect(url_for("league_detail", league_id=league_id))
 
-        # Check if new name conflicts with another league
         if name != league.name and League.query.filter_by(name=name).first():
             flash(f"League '{name}' already exists.", "error")
             return redirect(url_for("league_detail", league_id=league_id))
 
         league.name = name
         league.description = description or None
+
+        restriction = LeagueRestriction.query.filter_by(league_id=league_id).first()
+        if restriction:
+            restriction.early_season_weeks = early_season_weeks
+            restriction.team_commitment_threshold = team_commitment_threshold
+        else:
+            db.session.add(
+                LeagueRestriction(
+                    league_id=league_id,
+                    early_season_weeks=early_season_weeks,
+                    team_commitment_threshold=team_commitment_threshold,
+                )
+            )
+
         db.session.commit()
         flash(f"League '{name}' updated.", "success")
         return redirect(url_for("league_detail", league_id=league_id))
@@ -197,10 +267,24 @@ def create_app(config=None):
 
     @app.route("/")
     def index():
-        fixtures = Fixture.query.order_by(Fixture.date.desc()).all()
+        today = date.today()
+        all_fixtures = Fixture.query.all()
+        upcoming = (
+            Fixture.query.filter(Fixture.date >= today).order_by(Fixture.date.asc()).limit(3).all()
+        )
+        completed = (
+            Fixture.query.filter(Fixture.date < today).order_by(Fixture.date.desc()).limit(3).all()
+        )
         teams = Team.query.order_by(Team.name).all()
         leagues = League.query.order_by(League.name).all()
-        return render_template("index.html", fixtures=fixtures, teams=teams, leagues=leagues)
+        return render_template(
+            "index.html",
+            fixtures=all_fixtures,
+            upcoming=upcoming,
+            completed=completed,
+            teams=teams,
+            leagues=leagues,
+        )
 
     # ── Teams ───────────────────────────────────────────────────────────
 
@@ -266,7 +350,8 @@ def create_app(config=None):
         divisions = Division.query.order_by(Division.name).all()
         leagues = League.query.order_by(League.name).all()
         # Get all players not already on this team for the add player dropdown
-        all_players = Player.query.order_by(Player.name).all()
+        all_players = Player.query.order_by(Player.last_name, Player.first_name).all()
+
         available_players = [p for p in all_players if p not in players]
         return render_template(
             "team_detail.html",
@@ -284,32 +369,33 @@ def create_app(config=None):
 
     @app.route("/players/summary")
     def player_summary():
-        """Display summary of all players' weekly commitment across teams and seasons."""
-        players = Player.query.order_by(Player.name).all()
+        """Display summary of all club players."""
+        players = Player.query.order_by(Player.last_name, Player.first_name).all()
 
-        # Build player commitment data
         player_summary_data = []
         for player in players:
             player_info = {
                 "id": player.id,
                 "name": player.name,
+                "gender": player.gender,
+                "membership_status": player.membership_status,
+                "interest_team_play": player.interest_team_play,
+                "lta_number": player.lta_number,
                 "teams": [],
                 "total_teams": len(player.teams),
                 "total_matches": 0,
                 "commitments": [],
             }
 
-            # Get teams and their leagues
             teams_dict = {}
             for team in player.teams:
                 if team.division and team.division.league:
                     league = team.division.league
-                    league_key = f"{league.name}"
+                    league_key = league.name
                     if league_key not in teams_dict:
                         teams_dict[league_key] = {"league": league.name, "teams": []}
                     teams_dict[league_key]["teams"].append(team.name)
 
-                    # Get commitment info
                     commitment = PlayerTeamCommitment.query.filter_by(
                         player_id=player.id, league_id=league.id, season="2026"
                     ).first()
@@ -323,13 +409,10 @@ def create_app(config=None):
                         )
 
             player_info["teams"] = list(teams_dict.values())
-
-            # Get match count
-            match_count = PlayerMatchResult.query.filter_by(player_id=player.id).count()
-            player_info["total_matches"] = match_count
-
-            if player_info["teams"] or player_info["commitments"]:
-                player_summary_data.append(player_info)
+            player_info["total_matches"] = PlayerMatchResult.query.filter_by(
+                player_id=player.id
+            ).count()
+            player_summary_data.append(player_info)
 
         return render_template(
             "player_summary.html",
@@ -337,9 +420,60 @@ def create_app(config=None):
             total_players=len(player_summary_data),
         )
 
+    @app.route("/players/admin/add-details", methods=["GET", "POST"])
+    def admin_add_player_details():
+        """Admin form to add club players with the editable/frozen field set."""
+        if request.method == "POST":
+            first_name = (request.form.get("first_name") or "").strip()
+            last_name = (request.form.get("last_name") or "").strip()
+            gender = (request.form.get("gender") or "").strip().upper()
+            membership_status = (request.form.get("membership_status") or "").strip().lower()
+            interest_team_play = (request.form.get("interest_team_play") or "").strip().lower()
+            lta_number = (request.form.get("lta_number") or "").strip()
+
+            def _invalid(msg):
+                flash(msg, "error")
+                return redirect(url_for("admin_add_player_details"))
+
+            if not first_name:
+                return _invalid("First name is required.")
+            if not last_name:
+                return _invalid("Last name is required.")
+            if gender not in {"M", "F"}:
+                return _invalid("Gender must be 'M' or 'F'.")
+            if membership_status not in {"active", "inactive"}:
+                return _invalid("Membership status must be 'active' or 'inactive'.")
+            if interest_team_play not in {"yes", "no"}:
+                return _invalid("Interest in team play must be 'yes' or 'no'.")
+            if not lta_number:
+                return _invalid("LTA number is required.")
+
+            # Frozen fields: do not trust/consume disabled inputs.
+            player = Player(
+                first_name=first_name,
+                last_name=last_name,
+                gender=gender,
+                membership_status=membership_status,
+                interest_team_play=interest_team_play,
+                lta_number=lta_number,
+                contact_telephone=None,
+                miscellaneous=None,
+            )
+            db.session.add(player)
+            db.session.commit()
+
+            flash(f"Player '{player.name}' added.", "success")
+            return redirect(url_for("player_detail", player_id=player.id))
+
+        return render_template("add_player.html")
+
+    # Legacy route: add existing player to a team or create a minimal player by name.
+    # (Kept to avoid breaking existing UI flows on team pages.)
     @app.route("/players", methods=["POST"])
     def add_player():
+
         team_id = request.form.get("team_id", type=int)
+
         player_id = request.form.get("player_id", type=int)
         name = request.form.get("name", "").strip()
 
@@ -419,6 +553,46 @@ def create_app(config=None):
 
         return redirect(url_for("team_detail", team_id=team_id))
 
+    @app.route("/players/<int:player_id>/edit", methods=["GET", "POST"])
+    def edit_player(player_id):
+        player = Player.query.get_or_404(player_id)
+        if request.method == "POST":
+            first_name = (request.form.get("first_name") or "").strip()
+            last_name = (request.form.get("last_name") or "").strip()
+            gender = (request.form.get("gender") or "").strip().upper()
+            membership_status = (request.form.get("membership_status") or "").strip().lower()
+            interest_team_play = (request.form.get("interest_team_play") or "").strip().lower()
+            lta_number = (request.form.get("lta_number") or "").strip()
+
+            def _invalid(msg):
+                flash(msg, "error")
+                return redirect(url_for("edit_player", player_id=player_id))
+
+            if not first_name:
+                return _invalid("First name is required.")
+            if not last_name:
+                return _invalid("Last name is required.")
+            if gender not in {"M", "F"}:
+                return _invalid("Gender must be 'M' or 'F'.")
+            if membership_status not in {"active", "inactive"}:
+                return _invalid("Membership status must be 'active' or 'inactive'.")
+            if interest_team_play not in {"yes", "no"}:
+                return _invalid("Interest in team play must be 'yes' or 'no'.")
+            if not lta_number:
+                return _invalid("LTA number is required.")
+
+            player.first_name = first_name
+            player.last_name = last_name
+            player.gender = gender
+            player.membership_status = membership_status
+            player.interest_team_play = interest_team_play
+            player.lta_number = lta_number
+            db.session.commit()
+            flash(f"Player '{player.name}' updated.", "success")
+            return redirect(url_for("player_summary"))
+
+        return render_template("edit_player.html", player=player)
+
     @app.route("/players/<int:player_id>/delete", methods=["POST"])
     def delete_player(player_id):
         player = Player.query.get_or_404(player_id)
@@ -429,6 +603,177 @@ def create_app(config=None):
         return redirect(url_for("player_summary"))
 
     # ── Fixtures ────────────────────────────────────────────────────────
+
+    def _parse_ics(content, our_team_name=""):
+        """Parse ICS bytes into a list of event dicts.
+
+        Each dict has: date, summary, home_str, away_str, our_side.
+        Summaries are expected in the form 'Home Team - Away Team'.
+        our_team_name is matched (case-insensitive substring) against the
+        home/away parts to determine which side the tagged team is on.
+        """
+        ics_text = content.decode("utf-8", errors="replace")
+        lines = ics_text.splitlines()
+        unfolded = []
+        for line in lines:
+            if line.startswith((" ", "\t")) and unfolded:
+                unfolded[-1] += line[1:]
+            else:
+                unfolded.append(line)
+
+        events = []
+        current = {}
+        in_event = False
+        for line in unfolded:
+            stripped = line.strip()
+            if stripped == "BEGIN:VEVENT":
+                in_event = True
+                current = {}
+            elif stripped == "END:VEVENT":
+                if "date" in current and "summary" in current:
+                    events.append(current)
+                in_event = False
+            elif in_event and ":" in stripped:
+                key, _, value = stripped.partition(":")
+                key_base = key.split(";")[0].upper()
+                if key_base == "DTSTART":
+                    date_str = value.replace("Z", "")
+                    try:
+                        if "T" in date_str:
+                            dt = datetime.strptime(date_str[:15], "%Y%m%dT%H%M%S")
+                        else:
+                            dt = datetime.strptime(date_str[:8], "%Y%m%d")
+                        current["date"] = dt.date()
+                    except ValueError:
+                        pass
+                elif key_base == "SUMMARY":
+                    current["summary"] = value
+
+        def _side_matches(team_lower, side_str):
+            side_lower = side_str.lower()
+            return team_lower in side_lower or side_lower in team_lower
+
+        team_lower = our_team_name.lower()
+        for event in events:
+            parts = event["summary"].split(" - ", 1)
+            if len(parts) == 2:
+                event["home_str"] = parts[0].strip()
+                event["away_str"] = parts[1].strip()
+                if team_lower and _side_matches(team_lower, event["home_str"]):
+                    event["our_side"] = "home"
+                elif team_lower and _side_matches(team_lower, event["away_str"]):
+                    event["our_side"] = "away"
+                else:
+                    event["our_side"] = "home"
+            else:
+                event["home_str"] = event["summary"]
+                event["away_str"] = ""
+                event["our_side"] = "home"
+
+        return sorted(events, key=lambda e: e["date"])
+
+    @app.route("/fixtures/import-ics", methods=["GET", "POST"])
+    def import_ics():
+        """Import fixtures from a Google Calendar .ics file."""
+        teams = Team.query.order_by(Team.name).all()
+        leagues = League.query.order_by(League.name).all()
+
+        if request.method == "GET":
+            return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+        action = request.form.get("action", "parse")
+
+        if action == "parse":
+            our_team_id = request.form.get("our_team_id", "").strip()
+            if not our_team_id:
+                flash("Please select a team.", "error")
+                return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+            ics_file = request.files.get("ics_file")
+            if not ics_file or not ics_file.filename:
+                flash("Please upload a .ics calendar file.", "error")
+                return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+            if not ics_file.filename.lower().endswith(".ics"):
+                flash("File must be a .ics calendar file.", "error")
+                return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+            try:
+                our_team = Team.query.get(int(our_team_id))
+                events = _parse_ics(ics_file.read(), our_team.name)
+            except Exception as e:
+                flash(f"Error parsing file: {e}", "error")
+                return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+            if not events:
+                flash("No events with a date and title were found in the file.", "warning")
+                return render_template("import_ics.html", teams=teams, leagues=leagues)
+
+            return render_template(
+                "import_ics_review.html",
+                events=events,
+                our_team=our_team,
+            )
+
+        elif action == "confirm":
+            our_team_id = int(request.form.get("our_team_id"))
+            event_count = int(request.form.get("event_count", 0))
+            created = 0
+            skipped = 0
+            try:
+                for i in range(event_count):
+                    if not request.form.get(f"include_{i}"):
+                        skipped += 1
+                        continue
+                    date_str = request.form.get(f"date_{i}", "").strip()
+                    if not date_str:
+                        skipped += 1
+                        continue
+                    fixture_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    our_side = request.form.get(f"our_side_{i}", "home")
+                    home_str = request.form.get(f"home_str_{i}", "").strip()
+                    away_str = request.form.get(f"away_str_{i}", "").strip()
+                    opponent_str = away_str if our_side == "home" else home_str
+                    opponent_id = None
+                    if opponent_str:
+                        opp_lower = opponent_str.lower()
+                        for t in Team.query.all():
+                            t_lower = t.name.lower()
+                            if t_lower == opp_lower or t_lower in opp_lower or opp_lower in t_lower:
+                                opponent_id = t.id
+                                break
+                    home_id = our_team_id if our_side == "home" else opponent_id
+                    away_id = our_team_id if our_side == "away" else opponent_id
+                    fixture = Fixture(
+                        date=fixture_date,
+                        home_team_id=home_id,
+                        away_team_id=away_id,
+                        home_team_name=home_str or None,
+                        away_team_name=away_str or None,
+                    )
+                    db.session.add(fixture)
+                    db.session.flush()
+                    for rubber_num in range(1, 4):
+                        db.session.add(
+                            Rubber(
+                                fixture_id=fixture.id,
+                                rubber_number=rubber_num,
+                                rubber_type="singles",
+                            )
+                        )
+                    created += 1
+                db.session.commit()
+                flash(
+                    f"Imported {created} fixture(s)." + (f" {skipped} skipped." if skipped else ""),
+                    "success",
+                )
+            except Exception as e:
+                db.session.rollback()
+                flash(f"Error importing fixtures: {e}", "error")
+            return redirect(url_for("list_fixtures"))
+
+        flash("Unknown action.", "error")
+        return redirect(url_for("list_fixtures"))
 
     @app.route("/fixtures/manual", methods=["GET", "POST"])
     def manual_fixture_entry():
@@ -664,6 +1009,8 @@ def create_app(config=None):
 
             fixture.date = fixture_date
             fixture.league_id = league_id if league_id else None
+            fixture.home_score = request.form.get("home_score", 0, type=int)
+            fixture.away_score = request.form.get("away_score", 0, type=int)
             db.session.commit()
             flash("Fixture updated.", "success")
             return redirect(url_for("fixture_detail", fixture_id=fixture_id))
@@ -671,11 +1018,28 @@ def create_app(config=None):
             flash(f"Error updating fixture: {str(e)}", "error")
             return redirect(url_for("fixture_detail", fixture_id=fixture_id))
 
+    @app.route("/fixtures/bulk-delete", methods=["POST"])
+    def bulk_delete_fixtures():
+        """Delete multiple fixtures by ID."""
+        fixture_ids = request.form.getlist("fixture_ids", type=int)
+        if not fixture_ids:
+            flash("No fixtures selected.", "warning")
+            return redirect(url_for("list_fixtures"))
+        deleted = 0
+        for fid in fixture_ids:
+            fixture = Fixture.query.get(fid)
+            if fixture:
+                db.session.delete(fixture)
+                deleted += 1
+        db.session.commit()
+        flash(f"Deleted {deleted} fixture(s).", "success")
+        return redirect(url_for("list_fixtures"))
+
     @app.route("/fixtures/<int:fixture_id>/delete", methods=["POST"])
     def delete_fixture(fixture_id):
         fixture = Fixture.query.get_or_404(fixture_id)
-        home_team_name = fixture.home_team.name
-        away_team_name = fixture.away_team.name
+        home_team_name = fixture.home_team.name if fixture.home_team else "—"
+        away_team_name = fixture.away_team.name if fixture.away_team else "—"
         fixture_date = fixture.date
         db.session.delete(fixture)
         db.session.commit()
@@ -688,9 +1052,8 @@ def create_app(config=None):
 
     @app.route("/fixtures")
     def list_fixtures():
-        fixtures = Fixture.query.order_by(Fixture.date.desc()).all()
-        leagues = League.query.order_by(League.name).all()
-        return render_template("fixtures.html", fixtures=fixtures, leagues=leagues)
+        fixtures = Fixture.query.order_by(Fixture.date.asc()).all()
+        return render_template("fixtures.html", fixtures=fixtures)
 
     # ── API endpoints ───────────────────────────────────────────────────
 

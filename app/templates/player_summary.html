@@ -1,100 +1,154 @@
 {% extends "base.html" %}
 
-{% block title %}Players Summary - Team Tracker{% endblock %}
+{% block title %}Players — Team Tracker{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-md-8">
-        <h1><i class="bi bi-person-workspace me-2"></i>Players Summary</h1>
-        <p class="text-muted">Weekly commitment overview for all club players across teams during the 2026 season</p>
-    </div>
-    <div class="col-md-4 text-end">
-        <div class="stat-card">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-person-workspace me-2"></i>Players</h2>
+    <a href="{{ url_for('admin_add_player_details') }}" class="btn btn-tennis">
+        <i class="bi bi-person-plus me-1"></i>Add Player
+    </a>
+</div>
+
+<!-- Stats -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="card stat-card">
             <div class="stat-number">{{ total_players }}</div>
-            <div class="stat-label">Active Players</div>
+            <div class="stat-label">Total Players</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="stat-number text-success">
+                {{ players | selectattr('membership_status', 'equalto', 'active') | list | length }}
+            </div>
+            <div class="stat-label">Active Members</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="stat-number text-info">
+                {{ players | selectattr('interest_team_play', 'equalto', 'yes') | list | length }}
+            </div>
+            <div class="stat-label">Interested in Teams</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card">
+            <div class="stat-number">
+                {% set committed = players | selectattr('commitments') | list | length %}
+                {{ committed }}
+            </div>
+            <div class="stat-label">Committed to Team</div>
         </div>
     </div>
 </div>
 
 {% if players %}
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Player Team Commitments</h5>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Player Name</th>
-                                <th>Teams</th>
-                                <th>Leagues</th>
-                                <th>Committed Team (2026)</th>
-                                <th>Matches Played</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for player in players %}
-                            <tr>
-                                <td>
-                                    <strong>{{ player.name }}</strong>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info">{{ player.total_teams }} team{% if player.total_teams != 1 %}s{% endif %}</span>
-                                </td>
-                                <td>
-                                    {% if player.teams %}
-                                        {% for league_info in player.teams %}
-                                            <div class="small mb-1">
-                                                <strong>{{ league_info.league }}</strong>
-                                                <div class="text-muted">
-                                                    {% for team in league_info.teams %}
-                                                        <span class="badge bg-light text-dark">{{ team }}</span>
-                                                    {% endfor %}
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                    {% else %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if player.commitments %}
-                                        {% for commitment in player.commitments %}
-                                            <div class="mb-1">
-                                                <span class="badge bg-success">{{ commitment.team }}</span>
-                                                <div class="small text-muted">{{ commitment.league }}</div>
-                                            </div>
-                                        {% endfor %}
-                                    {% else %}
-                                        <span class="text-muted">Not committed</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <span class="badge bg-secondary">{{ player.total_matches }}</span>
-                                </td>
-                                <td>
-                                    <a href="{{ url_for('player_detail', player_id=player.id) }}" class="btn btn-sm btn-outline-tennis me-1">
-                                        <i class="bi bi-eye me-1"></i>View
-                                    </a>
-                                    <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deletePlayerModal{{ player.id }}" title="Delete player">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-people me-2"></i>Club Members
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="playersTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th class="text-center">Gender</th>
+                        <th class="text-center">Membership</th>
+                        <th class="text-center">Team Play</th>
+                        <th>LTA Number</th>
+                        <th class="text-center">Teams</th>
+                        <th class="text-center">Matches</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                    <tr id="filterRow">
+                        <th><input type="text" class="form-control form-control-sm" id="filterName" placeholder="Filter…"></th>
+                        <th class="text-center">
+                            <select class="form-select form-select-sm" id="filterGender">
+                                <option value="">All</option>
+                                <option value="M">M</option>
+                                <option value="F">F</option>
+                            </select>
+                        </th>
+                        <th class="text-center">
+                            <select class="form-select form-select-sm" id="filterMembership">
+                                <option value="">All</option>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </th>
+                        <th class="text-center">
+                            <select class="form-select form-select-sm" id="filterTeamPlay">
+                                <option value="">All</option>
+                                <option value="yes">Yes</option>
+                                <option value="no">No</option>
+                            </select>
+                        </th>
+                        <th><input type="text" class="form-control form-control-sm" id="filterLTA" placeholder="Filter…"></th>
+                        <th></th>
+                        <th></th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for player in players %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{{ url_for('player_detail', player_id=player.id) }}" class="text-decoration-none">
+                                {{ player.name }}
+                            </a>
+                        </td>
+                        <td class="text-center" data-value="{{ player.gender }}">
+                            <span class="badge {% if player.gender == 'M' %}bg-primary{% else %}bg-danger{% endif %}">
+                                {{ player.gender }}
+                            </span>
+                        </td>
+                        <td class="text-center" data-value="{{ player.membership_status }}">
+                            <span class="badge {% if player.membership_status == 'active' %}bg-success{% else %}bg-secondary{% endif %}">
+                                {{ player.membership_status | capitalize }}
+                            </span>
+                        </td>
+                        <td class="text-center" data-value="{{ player.interest_team_play }}">
+                            <span class="badge {% if player.interest_team_play == 'yes' %}bg-info{% else %}bg-light text-dark{% endif %}">
+                                {{ player.interest_team_play | capitalize }}
+                            </span>
+                        </td>
+                        <td class="text-muted small">{{ player.lta_number }}</td>
+                        <td class="text-center">
+                            {% if player.total_teams > 0 %}
+                                <span class="badge bg-info">{{ player.total_teams }}</span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <span class="badge bg-secondary">{{ player.total_matches }}</span>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ url_for('player_detail', player_id=player.id) }}" class="btn btn-sm btn-outline-tennis" title="View">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <a href="{{ url_for('edit_player', player_id=player.id) }}" class="btn btn-sm btn-outline-secondary" title="Edit">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                    data-bs-toggle="modal" data-bs-target="#deletePlayerModal{{ player.id }}"
+                                    title="Delete">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
-<!-- Delete Player Modals -->
+<!-- Delete modals -->
 {% for player in players %}
 <div class="modal fade" id="deletePlayerModal{{ player.id }}" tabindex="-1">
     <div class="modal-dialog">
@@ -106,14 +160,12 @@
                 </div>
                 <div class="modal-body">
                     <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
-                    <p>Are you sure you want to delete the player <strong>"{{ player.name }}"</strong>?</p>
-                    <p class="text-muted">This will:</p>
+                    <p>Are you sure you want to delete <strong>{{ player.name }}</strong>?</p>
                     <ul class="text-muted">
-                        <li>Remove the player profile from the system</li>
-                        <li>Delete all player match records ({{ player.total_matches }} matches)</li>
-                        <li>Remove them from all teams ({{ player.total_teams }} team(s))</li>
+                        <li>Remove player profile</li>
+                        <li>Delete {{ player.total_matches }} match record(s)</li>
+                        <li>Remove from {{ player.total_teams }} team(s)</li>
                     </ul>
-                    <p class="text-warning"><strong>This cannot be reversed.</strong></p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -125,55 +177,60 @@
 </div>
 {% endfor %}
 
-<div class="row mt-4">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h6 class="mb-0">Summary Statistics</h6>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-number">{{ total_players }}</div>
-                            <div class="stat-label">Total Players</div>
-                        </div>
-                    </div>
-                    <div class="col-6">
-                        <div class="stat-card">
-                            <div class="stat-number">
-                                {% set committed = players|selectattr('commitments')|list|length %}
-                                {{ committed }}
-                            </div>
-                            <div class="stat-label">Committed to Team</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h6 class="mb-0">How to Use</h6>
-            </div>
-            <div class="card-body">
-                <ul class="mb-0">
-                    <li>View all club players and their team assignments</li>
-                    <li>Track weekly commitments across different leagues</li>
-                    <li>See which players are committed to a team for the season</li>
-                    <li>Click "View" to see detailed player stats and match history</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</div>
-
 {% else %}
-<div class="alert alert-info">
-    <i class="bi bi-info-circle me-2"></i>
-    No players found. Start by <a href="{{ url_for('list_teams') }}">adding teams and players</a>.
+<div class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-people" style="font-size: 3rem;"></i>
+        <p class="mt-3 mb-3">No players have been added yet.</p>
+        <a href="{{ url_for('admin_add_player_details') }}" class="btn btn-tennis">
+            <i class="bi bi-person-plus me-1"></i>Add First Player
+        </a>
+    </div>
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const filterName       = document.getElementById('filterName');
+    const filterGender     = document.getElementById('filterGender');
+    const filterMembership = document.getElementById('filterMembership');
+    const filterTeamPlay   = document.getElementById('filterTeamPlay');
+    const filterLTA        = document.getElementById('filterLTA');
+    const tbody            = document.querySelector('#playersTable tbody');
+
+    if (!tbody) return;
+
+    function applyFilters() {
+        const name       = filterName.value.toLowerCase();
+        const gender     = filterGender.value;
+        const membership = filterMembership.value;
+        const teamPlay   = filterTeamPlay.value;
+        const lta        = filterLTA.value.toLowerCase();
+
+        Array.from(tbody.rows).forEach(row => {
+            const cells         = row.cells;
+            const rowName       = cells[0].textContent.trim().toLowerCase();
+            const rowGender     = cells[1].dataset.value || '';
+            const rowMembership = cells[2].dataset.value || '';
+            const rowTeamPlay   = cells[3].dataset.value || '';
+            const rowLTA        = cells[4].textContent.trim().toLowerCase();
+
+            const visible =
+                (!name       || rowName.includes(name))       &&
+                (!gender     || rowGender === gender)          &&
+                (!membership || rowMembership === membership)  &&
+                (!teamPlay   || rowTeamPlay === teamPlay)      &&
+                (!lta        || rowLTA.includes(lta));
+
+            row.style.display = visible ? '' : 'none';
+        });
+    }
+
+    [filterName, filterGender, filterMembership, filterTeamPlay, filterLTA]
+        .forEach(el => el.addEventListener('input', applyFilters));
+})();
+</script>
 {% endblock %}

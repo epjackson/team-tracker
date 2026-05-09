@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Review Import — Team Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-calendar-check me-2"></i>Review Calendar Import</h2>
+    <a href="{{ url_for('import_ics') }}" class="btn btn-outline-light">
+        <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+</div>
+
+<p class="text-white-50 mb-3">
+    Found <strong class="text-white">{{ events|length }}</strong> event(s) for
+    <strong class="text-white">{{ our_team.name }}</strong>.
+    Tick the rows you want to import.
+</p>
+
+<form method="POST" action="{{ url_for('import_ics') }}">
+    <input type="hidden" name="action" value="confirm">
+    <input type="hidden" name="our_team_id" value="{{ our_team.id }}">
+    <input type="hidden" name="event_count" value="{{ events|length }}">
+
+    <div class="card mb-4">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th class="ps-3" style="width:3rem;">
+                                <input type="checkbox" id="select-all" class="form-check-input" checked title="Select all">
+                            </th>
+                            <th>Date</th>
+                            <th>Home</th>
+                            <th>Away</th>
+                            <th>H/A</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in events %}
+                        <tr>
+                            <td class="ps-3">
+                                <input type="checkbox" name="include_{{ loop.index0 }}" value="1"
+                                       class="form-check-input row-check" checked>
+                            </td>
+                            <td>
+                                <input type="date" name="date_{{ loop.index0 }}"
+                                       value="{{ event.date.strftime('%Y-%m-%d') }}"
+                                       class="form-control form-control-sm" style="min-width:140px;" required>
+                            </td>
+                            <td class="text-muted small">{{ event.home_str }}</td>
+                            <td class="text-muted small">{{ event.away_str or '—' }}</td>
+                            <td>
+                                <input type="hidden" name="our_side_{{ loop.index0 }}"
+                                       value="{{ event.our_side }}" class="our-side-input">
+                                <input type="hidden" name="home_str_{{ loop.index0 }}" value="{{ event.home_str }}">
+                                <input type="hidden" name="away_str_{{ loop.index0 }}" value="{{ event.away_str }}">
+                                <button type="button"
+                                        class="btn btn-sm ha-toggle {% if event.our_side == 'home' %}btn-success{% else %}btn-info{% endif %}"
+                                        title="Click to toggle">
+                                    {{ 'Home' if event.our_side == 'home' else 'Away' }}
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 justify-content-end">
+        <a href="{{ url_for('import_ics') }}" class="btn btn-outline-light">Cancel</a>
+        <button type="submit" class="btn btn-tennis">
+            <i class="bi bi-check-lg me-1"></i>Import Selected Fixtures
+        </button>
+    </div>
+</form>
+
+<script>
+document.getElementById('select-all').addEventListener('change', function () {
+    document.querySelectorAll('.row-check').forEach(cb => cb.checked = this.checked);
+});
+
+document.querySelectorAll('.ha-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        var input = btn.closest('td').querySelector('.our-side-input');
+        if (input.value === 'home') {
+            input.value = 'away';
+            btn.textContent = 'Away';
+            btn.classList.replace('btn-success', 'btn-info');
+        } else {
+            input.value = 'home';
+            btn.textContent = 'Home';
+            btn.classList.replace('btn-info', 'btn-success');
+        }
+    });
+});
+</script>
+{% endblock %}

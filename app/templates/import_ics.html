@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Import Calendar — Team Tracker{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-calendar-plus me-2"></i>Import from Calendar</h2>
+    <a href="{{ url_for('list_fixtures') }}" class="btn btn-outline-light">
+        <i class="bi bi-arrow-left me-1"></i>Back to Fixtures
+    </a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body p-4">
+                <p class="text-muted mb-4">
+                    Upload a Google Calendar export (<code>.ics</code> file) to bulk-import fixtures.
+                    You will be able to review and adjust each event before saving.
+                </p>
+                <form method="POST" action="{{ url_for('import_ics') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="parse">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Our Team</label>
+                        <select name="our_team_id" class="form-select" required>
+                            <option value="">Select a team…</option>
+                            {% for team in teams %}
+                            <option value="{{ team.id }}">{{ team.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Which of our teams do these fixtures belong to?</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Calendar File (.ics)</label>
+                        <input type="file" name="ics_file" class="form-control" accept=".ics" required>
+                        <div class="form-text">Export from Google Calendar: Settings → Import &amp; export → Export.</div>
+                    </div>
+
+                    <button type="submit" class="btn btn-tennis w-100">
+                        <i class="bi bi-upload me-2"></i>Upload &amp; Preview
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

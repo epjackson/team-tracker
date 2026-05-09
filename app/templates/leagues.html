@@ -21,16 +21,41 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="name" class="form-label">League Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g. Summer League">
+                        <select class="form-select" id="name" name="name" required>
+                            <option value="" disabled selected>Select a league…</option>
+                            <option value="Cleveland Men's Summer League 2026">Cleveland Men's Summer League 2026</option>
+                            <option value="Cleveland Women's Summer League 2026">Cleveland Women's Summer League 2026</option>
+                            <option value="Cleveland Mixed Summer League 2026">Cleveland Mixed Summer League 2026</option>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label for="description" class="form-label">Description (optional)</label>
                         <textarea class="form-control" id="description" name="description" rows="2" placeholder="e.g. Saturday morning doubles league"></textarea>
                     </div>
                     <div class="mb-3">
-                        <label for="max_matches_per_team" class="form-label">Max Matches Per Player Per Team</label>
-                        <input type="number" class="form-control" id="max_matches_per_team" name="max_matches_per_team" min="0" placeholder="Leave empty or 0 for unlimited">
-                        <div class="form-text">Restricts how many rubbers a player can play for one team in this league. Set to 0 or leave empty for no limit.</div>
+                        <label for="num_divisions" class="form-label">Number of Divisions</label>
+                        <select class="form-select" id="num_divisions" name="num_divisions" required>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                        </select>
+                        <div class="form-text">Divisions will be created as Division 1, Division 2, etc.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="early_season_weeks" class="form-label">Early Season Single-Match Weeks</label>
+                        <input type="number" class="form-control" id="early_season_weeks" name="early_season_weeks" min="0" placeholder="Leave empty or 0 for no restriction">
+                        <div class="form-text">Number of weeks at the start of the season where a player may only play one match per week across the league. Set to 0 or leave empty to disable.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="team_commitment_threshold" class="form-label">Team Commitment Threshold</label>
+                        <input type="number" class="form-control" id="team_commitment_threshold" name="team_commitment_threshold" min="0" placeholder="Leave empty or 0 for no restriction">
+                        <div class="form-text">Number of matches a player must play for a team before they are tied to that team for the season. Set to 0 or leave empty to disable.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -56,19 +81,23 @@
                 <p class="text-muted small mb-3">{{ league.description }}</p>
                 {% endif %}
                 {% set restriction = league.restrictions.first() %}
-                {% if restriction and restriction.team_commitment_threshold > 0 %}
-                <div class="mb-3">
+                <div class="mb-3 d-flex flex-wrap gap-1">
+                    {% if restriction and restriction.team_commitment_threshold > 0 %}
                     <span class="badge bg-warning text-dark">
                         <i class="bi bi-link-45deg me-1"></i>Committed after {{ restriction.team_commitment_threshold }} fixtures
                     </span>
-                </div>
-                {% else %}
-                <div class="mb-3">
+                    {% endif %}
+                    {% if restriction and restriction.early_season_weeks > 0 %}
+                    <span class="badge bg-info text-dark">
+                        <i class="bi bi-calendar-week me-1"></i>1 match/week for first {{ restriction.early_season_weeks }} weeks
+                    </span>
+                    {% endif %}
+                    {% if not restriction or (restriction.team_commitment_threshold == 0 and restriction.early_season_weeks == 0) %}
                     <span class="badge bg-success">
                         <i class="bi bi-check-circle me-1"></i>No restrictions
                     </span>
+                    {% endif %}
                 </div>
-                {% endif %}
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <div class="text-muted small">Divisions</div>

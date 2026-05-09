@@ -210,9 +210,9 @@
         <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
             <div>
                 <small class="text-muted">{{ fixture.date.strftime('%d %b %Y') }}</small><br>
-                <span class="fw-bold">{{ fixture.home_team.name }}</span>
+                <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else '—' }}</span>
                 <span class="vs-text mx-1">vs</span>
-                <span class="fw-bold">{{ fixture.away_team.name }}</span>
+                <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else '—' }}</span>
             </div>
             <div class="d-flex align-items-center">
                 <span class="score-badge score-home me-2">{{ fixture.home_score }}</span>
