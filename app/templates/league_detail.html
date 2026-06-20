@@ -7,6 +7,7 @@
         <a href="{{ url_for('list_leagues') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>All Leagues</a>
         <h2 class="text-white mb-0"><i class="bi bi-trophy-fill me-2"></i>{{ league.name }}</h2>
     </div>
+    {% if is_admin %}
     <div class="d-flex gap-2">
         <button class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#addDivisionModal">
             <i class="bi bi-plus-circle me-1"></i>Add Division
@@ -18,6 +19,7 @@
             <i class="bi bi-trash me-1"></i>Delete
         </button>
     </div>
+    {% endif %}
 </div>
 
 {% if league.description %}
@@ -33,8 +35,8 @@
 <div class="alert alert-warning d-flex align-items-center mb-4">
     <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
     <div>
-        <strong>Team Commitment Active:</strong>
-        Players are tied to their first team after <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> in this league.
+        <strong>Division Lock Active:</strong>
+        After <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> for a team, a player may not play for another team in the same or a lower division. Moving up to a higher-ranked division remains allowed but the division lock would re-activate after 3 plays for a higher-ranked team.
         {% if restriction.description %}<br><small class="text-muted">{{ restriction.description }}</small>{% endif %}
     </div>
 </div>
@@ -42,11 +44,12 @@
 <div class="alert alert-success d-flex align-items-center mb-4">
     <i class="bi bi-check-circle-fill me-2 fs-5"></i>
     <div>
-        <strong>No team commitment restrictions</strong> — players are free to switch between teams.
+        <strong>No team tie restrictions</strong> — players are free to switch between teams.
     </div>
 </div>
 {% endif %}
 
+{% if is_admin %}
 <!-- Add Division Modal -->
 <div class="modal fade" id="addDivisionModal" tabindex="-1">
     <div class="modal-dialog">
@@ -84,9 +87,9 @@
                     <div class="mb-3">
                         <label for="edit_name" class="form-label">League Name</label>
                         <select class="form-select" id="edit_name" name="name" required>
-                            <option value="Cleveland Men's Summer League 2026" {% if league.name == "Cleveland Men's Summer League 2026" %}selected{% endif %}>Cleveland Men's Summer League 2026</option>
-                            <option value="Cleveland Women's Summer League 2026" {% if league.name == "Cleveland Women's Summer League 2026" %}selected{% endif %}>Cleveland Women's Summer League 2026</option>
-                            <option value="Cleveland Mixed Summer League 2026" {% if league.name == "Cleveland Mixed Summer League 2026" %}selected{% endif %}>Cleveland Mixed Summer League 2026</option>
+                            <option value="Cleveland Men's Doubles Summer League 2026" {% if league.name in ["Cleveland Men's Summer League 2026", "Cleveland Men's Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Men's Doubles Summer League 2026 (2 men per pair)</option>
+                            <option value="Cleveland Women's Doubles Summer League 2026" {% if league.name in ["Cleveland Women's Summer League 2026", "Cleveland Women's Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Women's Doubles Summer League 2026 (2 women per pair)</option>
+                            <option value="Cleveland Mixed Doubles Summer League 2026" {% if league.name in ["Cleveland Mixed Summer League 2026", "Cleveland Mixed Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Mixed Doubles Summer League 2026 (1 man + 1 woman per pair)</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -94,10 +97,28 @@
                         <textarea class="form-control" id="edit_description" name="description" rows="2" placeholder="League description...">{{ league.description or '' }}</textarea>
                     </div>
                     <div class="mb-3">
-                        <label for="edit_start_date" class="form-label">Season Start Date (Monday of Round 1)</label>
+                        <label for="edit_start_date" class="form-label">Season Start Date (Saturday of Round 1)</label>
                         <input type="date" class="form-control" id="edit_start_date" name="start_date"
                                value="{{ league.start_date.strftime('%Y-%m-%d') if league.start_date else '' }}">
-                        <div class="form-text">The Monday that marks the beginning of Round 1.</div>
+                        <div class="form-text">The Saturday that marks the beginning of Round 1.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_round5_start_date" class="form-label">Round 5 Start Date (Saturday)</label>
+                        <input type="date" class="form-control" id="edit_round5_start_date" name="round5_start_date"
+                               value="{{ league.round5_start_date.strftime('%Y-%m-%d') if league.round5_start_date else '' }}">
+                        <div class="form-text">The Saturday Round 5 begins. Gap between Rounds 4 and 5 used for catch-up.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_round9_start_date" class="form-label">Round 9 Start Date (Saturday)</label>
+                        <input type="date" class="form-control" id="edit_round9_start_date" name="round9_start_date"
+                               value="{{ league.round9_start_date.strftime('%Y-%m-%d') if league.round9_start_date else '' }}">
+                        <div class="form-text">The Saturday Round 9 begins. Gap between Rounds 8 and 9 used for catch-up.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_pairs_per_round" class="form-label">Doubles Pairs per Round</label>
+                        <input type="number" class="form-control" id="edit_pairs_per_round" name="pairs_per_round" min="1"
+                               value="{{ league.pairs_per_round or '' }}" placeholder="e.g. 3">
+                        <div class="form-text">The number of doubles pairs played per round in each fixture.</div>
                     </div>
                     <hr>
                     <h6 class="mb-3">Player Restrictions</h6>
@@ -109,11 +130,11 @@
                         <div class="form-text">Number of weeks at the start of the season where a player may only play one match per week across the league.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="edit_team_commitment_threshold" class="form-label">Team Commitment Threshold</label>
+                        <label for="edit_team_commitment_threshold" class="form-label">Team Tie Threshold</label>
                         <input type="number" class="form-control" id="edit_team_commitment_threshold" name="team_commitment_threshold" min="0"
                                value="{{ restriction.team_commitment_threshold if restriction and restriction.team_commitment_threshold > 0 else '' }}"
                                placeholder="Leave empty or 0 to disable">
-                        <div class="form-text">Number of matches a player must play for a team before they are tied to that team for the season.</div>
+                        <div class="form-text">After this many matches for a team, the player may not play for another team in the same or a lower division. They may still move up to a higher-ranked division.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -153,6 +174,7 @@
         </div>
     </div>
 </div>
+{% endif %}{# logged_in — all league edit modals #}
 
 <!-- Divisions -->
 <div class="card mb-4">
@@ -183,6 +205,7 @@
                         {% endfor %}
                     </td>
                     <td class="text-end align-middle text-nowrap">
+                        {% if is_admin %}
                         <button type="button" class="btn btn-sm btn-tennis me-1" data-bs-toggle="modal" data-bs-target="#assignTeamsModal{{ division.id }}">
                             <i class="bi bi-people me-1"></i>Assign Teams
                         </button>
@@ -192,6 +215,7 @@
                         <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteDivisionModal{{ division.id }}">
                             <i class="bi bi-trash"></i>
                         </button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -206,6 +230,7 @@
     </div>
 </div>
 
+{% if is_admin %}
 <!-- Assign Teams, Edit & Delete Division Modals -->
 {% for division in divisions %}
 <!-- Assign Teams Modal -->
@@ -310,44 +335,6 @@
     </div>
 </div>
 {% endfor %}
+{% endif %}{# logged_in — division modals #}
 
-<!-- Recent Fixtures in this league -->
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-journal-text me-2"></i>Fixtures</span>
-        <a href="{{ url_for('manual_fixture_entry') }}" class="btn btn-sm btn-outline-light">
-            <i class="bi bi-pencil me-1"></i>Manual Entry
-        </a>
-    </div>
-    <div class="card-body p-0">
-        {% if fixtures %}
-        {% for fixture in fixtures[:10] %}
-        <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
-            <div>
-                <small class="text-muted">{{ fixture.date.strftime('%d %b %Y') }}</small>
-                {% set display_round = fixture.round_label or fixture_round_label(fixture.date, league.start_date) %}
-                {% if display_round %}
-                <span class="badge bg-secondary ms-1">{{ display_round }}</span>
-                {% endif %}
-                <br>
-                <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else '—' }}</span>
-                <span class="vs-text mx-1">vs</span>
-                <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else '—' }}</span>
-            </div>
-            <div class="d-flex align-items-center">
-                <span class="score-badge score-home me-2">{{ fixture.home_score }}</span>
-                <span class="score-badge score-away">{{ fixture.away_score }}</span>
-                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="btn btn-sm btn-outline-tennis ms-3">
-                    <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
-        </div>
-        {% endfor %}
-        {% else %}
-        <div class="text-center py-4 text-muted">
-            <p>No fixtures recorded in this league yet.</p>
-        </div>
-        {% endif %}
-    </div>
-</div>
 {% endblock %}

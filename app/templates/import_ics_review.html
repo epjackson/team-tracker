@@ -32,6 +32,7 @@
                             <th>Date</th>
                             <th>Home</th>
                             <th>Away</th>
+                            <th>Opponent team</th>
                             <th>H/A</th>
                         </tr>
                     </thead>
@@ -47,8 +48,41 @@
                                        value="{{ event.date.strftime('%Y-%m-%d') }}"
                                        class="form-control form-control-sm" style="min-width:140px;" required>
                             </td>
+                            {% if event.is_internal %}
+                            <td class="small">
+                                <span class="int-home-name text-muted">{{ event.home_team.name }}</span>
+                                <input type="hidden" name="is_internal_{{ loop.index0 }}" value="1">
+                                <input type="hidden" name="internal_home_id_{{ loop.index0 }}"
+                                       value="{{ event.home_team.id }}" class="int-home-id">
+                            </td>
+                            <td class="small">
+                                <span class="int-away-name text-muted">{{ event.away_team.name }}</span>
+                                <input type="hidden" name="internal_away_id_{{ loop.index0 }}"
+                                       value="{{ event.away_team.id }}" class="int-away-id">
+                            </td>
+                            <td></td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-outline-warning swap-int-btn"
+                                        title="Swap home and away teams">
+                                    <i class="bi bi-arrow-left-right"></i>
+                                </button>
+                            </td>
+                            {% else %}
+                            {% set _opp_pre = event.away_team if event.our_side == 'home' else event.home_team %}
                             <td class="text-muted small">{{ event.home_str }}</td>
                             <td class="text-muted small">{{ event.away_str or '—' }}</td>
+                            <td>
+                                <select name="opponent_team_id_{{ loop.index0 }}"
+                                        class="form-select form-select-sm" style="min-width:160px">
+                                    <option value="">— unlinked —</option>
+                                    {% for t in all_teams %}
+                                    <option value="{{ t.id }}"
+                                            {% if _opp_pre and _opp_pre.id == t.id %}selected{% endif %}>
+                                        {{ t.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
                             <td>
                                 <input type="hidden" name="our_side_{{ loop.index0 }}"
                                        value="{{ event.our_side }}" class="our-side-input">
@@ -60,6 +94,7 @@
                                     {{ 'Home' if event.our_side == 'home' else 'Away' }}
                                 </button>
                             </td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -79,6 +114,22 @@
 <script>
 document.getElementById('select-all').addEventListener('change', function () {
     document.querySelectorAll('.row-check').forEach(cb => cb.checked = this.checked);
+});
+
+document.querySelectorAll('.swap-int-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        var row = btn.closest('tr');
+        var homeId = row.querySelector('.int-home-id');
+        var awayId = row.querySelector('.int-away-id');
+        var homeName = row.querySelector('.int-home-name');
+        var awayName = row.querySelector('.int-away-name');
+        var tmpId = homeId.value;
+        homeId.value = awayId.value;
+        awayId.value = tmpId;
+        var tmpName = homeName.textContent;
+        homeName.textContent = awayName.textContent;
+        awayName.textContent = tmpName;
+    });
 });
 
 document.querySelectorAll('.ha-toggle').forEach(function (btn) {

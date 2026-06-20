@@ -1,162 +1,250 @@
 {% extends "base.html" %}
 {% block title %}Team Tracker{% endblock %}
 
+{% block extra_css %}
+<style>
+    .modal-backdrop.show { opacity: 0.8; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="hero-section">
     <img src="{{ url_for('static', filename='images/yarm-logo.png') }}" alt="Yarm Tennis Club" class="logo" style="width: 5%;">
     <h1>Yarm Tennis Club</h1>
+    {% if deployed_at %}
+    <p class="mb-0" style="opacity: 0.6; font-size: 0.8rem;">Last updated: {{ deployed_at }}</p>
+    {% endif %}
 </div>
 
 <!-- Stats row -->
 <div class="row g-4 mb-5">
-    <div class="col-md-4">
+    <div class="col">
         <div class="card stat-card">
             <div class="stat-number">{{ leagues|length }}</div>
             <div class="stat-label">Leagues</div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col">
         <div class="card stat-card">
             <div class="stat-number">{{ teams|length }}</div>
             <div class="stat-label">Teams</div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col">
         <div class="card stat-card">
             <div class="stat-number">{{ fixtures|length }}</div>
             <div class="stat-label">Fixtures Recorded</div>
         </div>
     </div>
+    <div class="col">
+        <div class="card stat-card">
+            <div class="stat-number text-success">{{ active_members_count }}</div>
+            <div class="stat-label">Active Members</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card stat-card">
+            <div class="stat-number text-info">{{ interested_players_count }}</div>
+            <div class="stat-label">Interested in Teams</div>
+        </div>
+    </div>
 </div>
 
-<!-- This week's fixtures -->
-<div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-calendar-week me-2"></i>This Week
-            <small class="text-muted ms-2 fw-normal">w/c {{ this_week_start.strftime('%d %b %Y') }}</small>
-        </span>
-        <a href="{{ url_for('list_fixtures') }}" class="btn btn-sm btn-outline-light">View All</a>
-    </div>
-    <div class="card-body p-0">
-        {% if this_week %}
-            {% for fixture in this_week[:3] %}
-            <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
-            <div class="d-flex justify-content-between align-items-center p-3 border-bottom fixture-card">
-                <div class="text-center" style="width: 100px;">
-                    <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
-                </div>
-                <div class="flex-grow-1 ms-3">
-                    <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
-                    <span class="vs-text mx-2">vs</span>
-                    <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
-                </div>
-                {% if fixture.date < today %}
-                <div class="d-flex align-items-center">
-                    <span class="score-badge score-home me-2">{{ fixture.home_score }}</span>
-                    <span class="score-badge score-away">{{ fixture.away_score }}</span>
-                </div>
-                {% endif %}
+<!-- Fixtures two-column layout -->
+<div class="row g-4 mb-4">
+
+    <!-- Last 7 Days -->
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-calendar-week me-2"></i>Last 7 Days</span>
+                <a href="{{ url_for('list_fixtures') }}" class="btn btn-sm btn-outline-light">View All</a>
             </div>
-            </a>
-            {% endfor %}
-            {% if this_week|length > 3 %}
-            <div class="collapse" id="thisWeekMore">
-                {% for fixture in this_week[3:] %}
-                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
-                <div class="d-flex justify-content-between align-items-center p-3 border-bottom fixture-card">
-                    <div class="text-center" style="width: 100px;">
-                        <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
+            <div class="card-body p-0">
+                {% if this_week %}
+                    {% for fixture in this_week[:6] %}
+                    <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
+                    <div class="d-flex align-items-center p-3 border-bottom fixture-card">
+                        <div class="text-center flex-shrink-0" style="width: 60px;">
+                            {% if fixture.date == today %}
+                            <span class="badge bg-primary">TODAY</span>
+                            {% else %}
+                            <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
+                            {% endif %}
+                        </div>
+                        <div class="ms-2 d-flex align-items-center flex-wrap gap-2">
+                            {% if fixture.home_score + fixture.away_score > 0 %}
+                                {% if fixture.home_score > fixture.away_score %}
+                                <span class="fw-bold text-success">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                                <span class="score-badge bg-success text-white">{{ fixture.home_score }}</span>
+                                <span class="text-muted">–</span>
+                                <span class="score-badge" style="background:#e9ecef; color:#6c757d;">{{ fixture.away_score }}</span>
+                                <span class="fw-bold text-muted">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                                {% elif fixture.away_score > fixture.home_score %}
+                                <span class="fw-bold text-muted">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                                <span class="score-badge" style="background:#e9ecef; color:#6c757d;">{{ fixture.home_score }}</span>
+                                <span class="text-muted">–</span>
+                                <span class="score-badge bg-success text-white">{{ fixture.away_score }}</span>
+                                <span class="fw-bold text-success">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                                {% else %}
+                                <span class="fw-bold text-success">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                                <span class="score-badge bg-success text-white">{{ fixture.home_score }}</span>
+                                <span class="text-muted">–</span>
+                                <span class="score-badge bg-success text-white">{{ fixture.away_score }}</span>
+                                <span class="fw-bold text-success">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                            <span class="vs-text">vs</span>
+                            <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                            {% endif %}
+                        </div>
                     </div>
-                    <div class="flex-grow-1 ms-3">
-                        <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
-                        <span class="vs-text mx-2">vs</span>
-                        <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
-                    </div>
-                    {% if fixture.date < today %}
-                    <div class="d-flex align-items-center">
-                        <span class="score-badge score-home me-2">{{ fixture.home_score }}</span>
-                        <span class="score-badge score-away">{{ fixture.away_score }}</span>
+                    </a>
+                    {% endfor %}
+                    {% if this_week|length > 6 %}
+                    <div class="text-center py-2 border-top">
+                        <button class="btn btn-sm btn-link text-muted" data-bs-toggle="modal" data-bs-target="#thisWeekModal">
+                            Show {{ this_week|length - 6 }} more
+                        </button>
                     </div>
                     {% endif %}
+                {% else %}
+                <div class="text-center py-4 text-muted">No fixtures in the last 7 days.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Next 7 Days -->
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <span><i class="bi bi-calendar-plus me-2"></i>Next 7 Days</span>
+            </div>
+            <div class="card-body p-0">
+                {% if next_week %}
+                    {% for fixture in next_week[:6] %}
+                    <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
+                    <div class="d-flex align-items-center p-3 border-bottom fixture-card">
+                        <div class="text-center flex-shrink-0" style="width: 60px;">
+                            {% if fixture.date == today %}
+                            <span class="badge bg-primary">TODAY</span>
+                            {% else %}
+                            <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
+                            {% endif %}
+                        </div>
+                        <div class="ms-2">
+                            <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                            <span class="vs-text mx-1">vs</span>
+                            <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                        </div>
+                    </div>
+                    </a>
+                    {% endfor %}
+                    {% if next_week|length > 6 %}
+                    <div class="text-center py-2 border-top">
+                        <button class="btn btn-sm btn-link text-muted" data-bs-toggle="modal" data-bs-target="#nextWeekModal">
+                            Show {{ next_week|length - 6 }} more
+                        </button>
+                    </div>
+                    {% endif %}
+                {% else %}
+                <div class="text-center py-4 text-muted">No upcoming fixtures.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Last 7 Days — full list modal -->
+{% if this_week|length > 6 %}
+<div class="modal fade" id="thisWeekModal" tabindex="-1" aria-labelledby="thisWeekModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: 620px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1a6b50, #0f4c3a); color: white;">
+                <h5 class="modal-title" id="thisWeekModalLabel"><i class="bi bi-calendar-week me-2"></i>Last 7 Days — all {{ this_week|length }} fixtures</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                {% for fixture in this_week %}
+                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
+                <div class="d-flex align-items-center p-3 border-bottom fixture-card">
+                    <div class="text-center flex-shrink-0" style="width: 60px;">
+                        {% if fixture.date == today %}
+                        <span class="badge bg-primary">TODAY</span>
+                        {% else %}
+                        <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
+                        {% endif %}
+                    </div>
+                    <div class="ms-2 d-flex align-items-center flex-wrap gap-2">
+                        {% if fixture.home_score + fixture.away_score > 0 %}
+                            {% if fixture.home_score > fixture.away_score %}
+                            <span class="fw-bold text-success">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                            <span class="score-badge bg-success text-white">{{ fixture.home_score }}</span>
+                            <span class="text-muted">–</span>
+                            <span class="score-badge" style="background:#e9ecef; color:#6c757d;">{{ fixture.away_score }}</span>
+                            <span class="fw-bold text-muted">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                            {% elif fixture.away_score > fixture.home_score %}
+                            <span class="fw-bold text-muted">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                            <span class="score-badge" style="background:#e9ecef; color:#6c757d;">{{ fixture.home_score }}</span>
+                            <span class="text-muted">–</span>
+                            <span class="score-badge bg-success text-white">{{ fixture.away_score }}</span>
+                            <span class="fw-bold text-success">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                            {% else %}
+                            <span class="fw-bold text-success">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                            <span class="score-badge bg-success text-white">{{ fixture.home_score }}</span>
+                            <span class="text-muted">–</span>
+                            <span class="score-badge bg-success text-white">{{ fixture.away_score }}</span>
+                            <span class="fw-bold text-success">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                            {% endif %}
+                        {% else %}
+                        <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                        <span class="vs-text">vs</span>
+                        <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                        {% endif %}
+                    </div>
                 </div>
                 </a>
                 {% endfor %}
             </div>
-            <div class="text-center py-2 border-top">
-                <button class="btn btn-sm btn-link text-muted week-expand-btn" data-bs-toggle="collapse" data-bs-target="#thisWeekMore" aria-expanded="false">
-                    <span class="show-label">Show {{ this_week|length - 3 }} more</span>
-                    <span class="hide-label d-none">Show fewer</span>
-                </button>
-            </div>
-            {% endif %}
-        {% else %}
-        <div class="text-center py-4 text-muted">No fixtures this week.</div>
-        {% endif %}
-    </div>
-</div>
-
-<!-- Next week's fixtures -->
-{% if next_week %}
-<div class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-calendar-plus me-2"></i>Next Week
-            <small class="text-muted ms-2 fw-normal">w/c {{ next_week_start.strftime('%d %b %Y') }}</small>
-        </span>
-    </div>
-    <div class="card-body p-0">
-        {% for fixture in next_week[:3] %}
-        <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
-        <div class="d-flex justify-content-between align-items-center p-3 border-bottom fixture-card">
-            <div class="text-center" style="width: 100px;">
-                <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
-            </div>
-            <div class="flex-grow-1 ms-3">
-                <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
-                <span class="vs-text mx-2">vs</span>
-                <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
-            </div>
         </div>
-        </a>
-        {% endfor %}
-        {% if next_week|length > 3 %}
-        <div class="collapse" id="nextWeekMore">
-            {% for fixture in next_week[3:] %}
-            <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
-            <div class="d-flex justify-content-between align-items-center p-3 border-bottom fixture-card">
-                <div class="text-center" style="width: 100px;">
-                    <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
-                </div>
-                <div class="flex-grow-1 ms-3">
-                    <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
-                    <span class="vs-text mx-2">vs</span>
-                    <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
-                </div>
-            </div>
-            </a>
-            {% endfor %}
-        </div>
-        <div class="text-center py-2 border-top">
-            <button class="btn btn-sm btn-link text-muted week-expand-btn" data-bs-toggle="collapse" data-bs-target="#nextWeekMore" aria-expanded="false">
-                <span class="show-label">Show {{ next_week|length - 3 }} more</span>
-                <span class="hide-label d-none">Show fewer</span>
-            </button>
-        </div>
-        {% endif %}
     </div>
 </div>
 {% endif %}
 
-<script>
-document.querySelectorAll('.week-expand-btn').forEach(function(btn) {
-    var target = document.querySelector(btn.dataset.bsTarget);
-    target.addEventListener('show.bs.collapse', function() {
-        btn.querySelector('.show-label').classList.add('d-none');
-        btn.querySelector('.hide-label').classList.remove('d-none');
-    });
-    target.addEventListener('hide.bs.collapse', function() {
-        btn.querySelector('.show-label').classList.remove('d-none');
-        btn.querySelector('.hide-label').classList.add('d-none');
-    });
-});
-</script>
+<!-- Next 7 Days — full list modal -->
+{% if next_week|length > 6 %}
+<div class="modal fade" id="nextWeekModal" tabindex="-1" aria-labelledby="nextWeekModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable" style="max-width: 620px;">
+        <div class="modal-content">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1a6b50, #0f4c3a); color: white;">
+                <h5 class="modal-title" id="nextWeekModalLabel"><i class="bi bi-calendar-plus me-2"></i>Next 7 Days — all {{ next_week|length }} fixtures</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                {% for fixture in next_week %}
+                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="text-decoration-none text-reset">
+                <div class="d-flex align-items-center p-3 border-bottom fixture-card">
+                    <div class="text-center flex-shrink-0" style="width: 60px;">
+                        {% if fixture.date == today %}
+                        <span class="badge bg-primary">TODAY</span>
+                        {% else %}
+                        <small class="text-muted">{{ fixture.date.strftime('%d %b') }}</small>
+                        {% endif %}
+                    </div>
+                    <div class="ms-2">
+                        <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                        <span class="vs-text mx-1">vs</span>
+                        <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                    </div>
+                </div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

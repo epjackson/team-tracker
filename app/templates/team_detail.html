@@ -10,19 +10,27 @@
         <span class="badge bg-info mt-1">{{ team.division.league.name }} — {{ team.division.name }}</span>
         {% endif %}
     </div>
+    {% set can_edit_team = is_admin or team.id in captain_team_ids %}
+    {% if can_edit_team %}
     <div class="d-flex gap-2">
+        {% if is_admin %}
         <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addPlayerModal">
             <i class="bi bi-person-plus me-1"></i>Add Player
         </button>
+        {% endif %}
         <button class="btn btn-outline-light" data-bs-toggle="modal" data-bs-target="#editTeamModal">
             <i class="bi bi-pencil me-1"></i>Edit
         </button>
+        {% if is_admin %}
         <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteTeamModal">
             <i class="bi bi-trash me-1"></i>Delete
         </button>
+        {% endif %}
     </div>
+    {% endif %}
 </div>
 
+{% if can_edit_team %}
 <!-- Edit Team Modal -->
 <div class="modal fade" id="editTeamModal" tabindex="-1">
     <div class="modal-dialog">
@@ -39,14 +47,36 @@
                     </div>
                     <div class="mb-3">
                         <label for="team_division" class="form-label">Division (optional)</label>
+                        {% set ns_lg = namespace(mens=[], womens=[], mixed=[], other=[]) %}
+                        {% for div in divisions %}
+                          {% set lname = div.league.name %}
+                          {% if 'Women' in lname %}{% set _ = ns_lg.womens.append(div) %}
+                          {% elif 'Mixed' in lname %}{% set _ = ns_lg.mixed.append(div) %}
+                          {% elif 'Men' in lname %}{% set _ = ns_lg.mens.append(div) %}
+                          {% else %}{% set _ = ns_lg.other.append(div) %}
+                          {% endif %}
+                        {% endfor %}
                         <select class="form-select" id="team_division" name="division_id">
                             <option value="">No Division</option>
-                            {% for div in divisions %}
-                            <option value="{{ div.id }}" {% if team.division and team.division.id == div.id %}selected{% endif %}>
-                                {{ div.league.name }} — {{ div.name }}
-                            </option>
+                            {% for label, cat_divs in [("Men's", ns_lg.mens), ("Women's", ns_lg.womens), ("Mixed", ns_lg.mixed), ("Other", ns_lg.other)] %}
+                            {% if cat_divs %}
+                            <optgroup label="{{ label }}">
+                                {% for div in cat_divs %}
+                                <option value="{{ div.id }}" {% if team.division and team.division.id == div.id %}selected{% endif %}>
+                                    {{ div.league.name }} — {{ div.name }}
+                                </option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
                             {% endfor %}
                         </select>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="edit_match_fees_enabled" name="match_fees_enabled" value="1" {% if team.match_fees_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="edit_match_fees_enabled">Enable match fee records</label>
+                        </div>
+                        <div class="form-text">Track whether players have paid their match fee for each fixture.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -58,6 +88,9 @@
     </div>
 </div>
 
+{% endif %}{# can_edit_team #}
+
+{% if is_admin %}
 <!-- Delete Team Modal -->
 <div class="modal fade" id="deleteTeamModal" tabindex="-1">
     <div class="modal-dialog">
@@ -100,23 +133,24 @@
                 <div class="modal-body">
                     {% if available_players %}
                     <div class="mb-3">
-                        <label for="player_id" class="form-label">Select Existing Player</label>
-                        <select class="form-select" id="player_id" name="player_id">
-                            <option value="">—</option>
+                        <label class="form-label">Select Players</label>
+                        <input type="text" class="form-control form-control-sm mb-1" id="playerSearch"
+                               placeholder="Type to filter…" autocomplete="off">
+                        <select class="form-select" id="player_id" name="player_id" multiple size="8">
                             {% for player in available_players %}
-                            <option value="{{ player.id }}">{{ player.name }}</option>
+                            {% set on_team = player.id in team_player_ids %}
+                            <option value="{{ player.id }}"
+                                    {% if on_team %}disabled style="color: #999;"{% endif %}>
+                                {{ player.last_name }}, {{ player.first_name }}{% if on_team %} (already on team){% endif %}
+                            </option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">Choose from existing players in the system</div>
-                    </div>
-                    <div class="text-center text-muted my-3">
-                        <small>OR</small>
+                        <div class="form-text">Type to filter · hold Ctrl / Cmd to select multiple</div>
                     </div>
                     {% endif %}
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Create New Player</label>
-                        <input type="text" class="form-control" id="name" name="name" placeholder="e.g. John Smith">
-                        <div class="form-text">Enter name to create a new player</div>
+                    <div class="alert alert-secondary py-2 mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-person-plus"></i>
+                        <span>Need to add a new player? <a href="{{ url_for('admin_add_player_details') }}" target="_blank">Create player profile</a>, then add them here.</span>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -127,6 +161,26 @@
         </div>
     </div>
 </div>
+<!-- Captain Confirmation Modal -->
+<div class="modal fade" id="captainModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="captainModalTitle">Change Captain</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="captainModalBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="captainModalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+<form id="captainForm" method="POST" action="{{ url_for('set_team_captain', team_id=team.id) }}" style="display:none;">
+    <input type="hidden" id="captainFormPlayerId" name="player_id">
+</form>
+{% endif %}{# is_admin — delete/add-player modals #}
 
 <!-- Players -->
 <div class="card mb-4">
@@ -135,6 +189,7 @@
     </div>
     <div class="card-body p-0">
         {% if players %}
+        <p class="text-muted small px-3 pt-2 mb-0"><i class="bi bi-info-circle me-1"></i>Figures show results for this team, with all-league totals in brackets.</p>
         <table class="table table-hover mb-0">
             <thead>
                 <tr>
@@ -151,14 +206,26 @@
             <tbody>
                 {% for player in players %}
                 {% set results = player.match_results.all() %}
-                {% set wins = results|selectattr('won')|list|length %}
-                {% set losses = results|rejectattr('won')|list|length %}
+                {% set wins = results|selectattr('won')|rejectattr('is_walkover')|list|length %}
+                {% set losses = results|rejectattr('won')|rejectattr('rubber.winner', 'equalto', 'tie')|rejectattr('is_walkover')|list|length %}
                 {% set total = wins + losses %}
+                {% set ts = team_stats.get(player.id, {}) %}
+                {% set tw = ts.get('wins', 0) %}
+                {% set tl = ts.get('losses', 0) %}
+                {% set ttotal = tw + tl %}
+                {% set is_captain = captain and captain.player_id == player.id %}
                 <tr>
-                    <td class="fw-bold">{{ player.name }}</td>
-                    <td class="text-center"><span class="badge bg-success">{{ wins }}</span></td>
-                    <td class="text-center"><span class="badge bg-danger">{{ losses }}</span></td>
-                    <td class="text-center">{{ '%.0f'|format((wins/total*100)) if total > 0 else '—' }}%</td>
+                    <td class="fw-bold">
+                        {{ player.name }}
+                        {% if is_captain %}
+                        <span class="badge bg-warning text-dark ms-1" data-bs-toggle="tooltip" title="Captain of {{ team.name }}">
+                            <i class="bi bi-star-fill me-1"></i>CAPTAIN
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center"><span class="badge bg-success">{{ tw }}</span> <small class="text-muted">({{ wins }})</small></td>
+                    <td class="text-center"><span class="badge bg-danger">{{ tl }}</span> <small class="text-muted">({{ losses }})</small></td>
+                    <td class="text-center">{{ '%.0f'|format((tw/ttotal*100)) if ttotal > 0 else '—' }}% <small class="text-muted">({{ '%.0f'|format((wins/total*100)) if total > 0 else '—' }}%)</small></td>
                     {% if eligibility %}
                     <td class="text-center">
                         {% set elig = eligibility.get(player.id) %}
@@ -179,11 +246,22 @@
                     {% endif %}
                     <td>
                         <a href="{{ url_for('player_detail', player_id=player.id) }}" class="btn btn-sm btn-outline-tennis me-1">Details</a>
+                        {% if is_admin %}
+                        <button type="button"
+                                class="btn btn-sm {% if is_captain %}btn-warning{% else %}btn-outline-secondary{% endif %} me-1 js-set-captain"
+                                data-player-id="{{ player.id }}"
+                                data-player-name="{{ player.name }}"
+                                data-is-captain="{{ 'true' if is_captain else 'false' }}"
+                                data-bs-toggle="modal" data-bs-target="#captainModal"
+                                title="{% if is_captain %}Remove as captain{% else %}Make captain{% endif %}">
+                            <i class="bi bi-star{% if not is_captain %}-fill{% endif %}"></i>
+                        </button>
                         <form method="POST" action="{{ url_for('remove_player_from_team', player_id=player.id, team_id=team.id) }}" style="display:inline;">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remove {{ player.name }} from {{ team.name }}?')">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </form>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -198,26 +276,43 @@
     </div>
 </div>
 
-<!-- Recent Fixtures -->
+<!-- Fixtures -->
 <div class="card">
     <div class="card-header">
-        <i class="bi bi-journal-text me-2"></i>Recent Fixtures
+        <i class="bi bi-journal-text me-2"></i>Fixtures
     </div>
     <div class="card-body p-0">
-        {% set all_fixtures = home_fixtures + away_fixtures %}
+        {% set all_fixtures = (home_fixtures + away_fixtures)|sort(attribute='date') %}
         {% if all_fixtures %}
-        {% for fixture in all_fixtures[:10] %}
+        {% for fixture in all_fixtures %}
         <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
-            <div>
-                <small class="text-muted">{{ fixture.date.strftime('%d %b %Y') }}</small><br>
-                <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else '—' }}</span>
-                <span class="vs-text mx-1">vs</span>
-                <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else '—' }}</span>
+            <div class="d-flex align-items-center gap-3">
+                {% if fixture.home_score + fixture.away_score > 0 %}
+                {% set team_score = fixture.home_score if fixture.home_team_id == team.id else fixture.away_score %}
+                {% set opp_score  = fixture.away_score if fixture.home_team_id == team.id else fixture.home_score %}
+                {% if team_score > opp_score %}
+                <span class="badge bg-success text-center" style="min-width:1.75rem;">W</span>
+                {% elif team_score < opp_score %}
+                <span class="badge bg-danger text-center" style="min-width:1.75rem;">L</span>
+                {% else %}
+                <span class="badge bg-secondary text-center" style="min-width:1.75rem;">D</span>
+                {% endif %}
+                {% else %}
+                <span style="min-width:1.75rem;"></span>
+                {% endif %}
+                <div>
+                    <small class="text-muted">{{ fixture.date.strftime('%d %b %Y') }}</small><br>
+                    <span class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</span>
+                    <span class="vs-text mx-1">vs</span>
+                    <span class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</span>
+                </div>
             </div>
             <div class="d-flex align-items-center">
+                {% if fixture.home_score + fixture.away_score > 0 %}
                 <span class="score-badge score-home me-2">{{ fixture.home_score }}</span>
-                <span class="score-badge score-away">{{ fixture.away_score }}</span>
-                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}" class="btn btn-sm btn-outline-tennis ms-3">
+                <span class="score-badge score-away me-3">{{ fixture.away_score }}</span>
+                {% endif %}
+                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=team.id) }}" class="btn btn-sm btn-outline-tennis ms-3">
                     <i class="bi bi-arrow-right"></i>
                 </a>
             </div>
@@ -230,4 +325,43 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+
+document.querySelectorAll('.js-set-captain').forEach(btn => {
+    btn.addEventListener('click', function () {
+        const playerName = this.dataset.playerName;
+        const isCaptain = this.dataset.isCaptain === 'true';
+        const playerId = this.dataset.playerId;
+        const title = document.getElementById('captainModalTitle');
+        const body = document.getElementById('captainModalBody');
+        if (isCaptain) {
+            title.textContent = 'Remove Captain';
+            body.textContent = `Remove ${playerName} as captain of {{ team.name }}?`;
+        } else {
+            title.textContent = 'Assign Captain';
+            body.textContent = `Make ${playerName} captain of {{ team.name }}? Any existing captain will be replaced.`;
+        }
+        document.getElementById('captainFormPlayerId').value = playerId;
+    });
+});
+
+document.getElementById('captainModalConfirm')?.addEventListener('click', function () {
+    bootstrap.Modal.getInstance(document.getElementById('captainModal')).hide();
+    document.getElementById('captainForm').submit();
+});
+
+const playerSearch = document.getElementById('playerSearch');
+if (playerSearch) {
+    playerSearch.addEventListener('input', function () {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('#player_id option').forEach(opt => {
+            opt.hidden = !opt.text.toLowerCase().includes(q);
+        });
+    });
+}
+</script>
 {% endblock %}

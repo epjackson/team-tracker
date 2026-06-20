@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+{% block title %}Help — Team Tracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.help-section { scroll-margin-top: 80px; }
+.help-toc { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+.help-toc li { counter-increment: toc; padding: 0.25rem 0; border-bottom: 1px solid #e9ecef; }
+.help-toc li:last-child { border-bottom: none; }
+.help-toc li::before { content: counter(toc) ". "; color: #adb5bd; font-size: 0.85rem; }
+.help-toc a { color: #1a6b50; text-decoration: none; font-size: 0.9rem; }
+.help-toc a:hover { text-decoration: underline; }
+.req-login {
+    display: inline-block;
+    background: #fff8e1;
+    color: #856404;
+    border: 1px solid #ffe082;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.45rem;
+    vertical-align: middle;
+    margin-left: 0.3rem;
+    font-weight: 500;
+}
+.req-admin {
+    display: inline-block;
+    background: #fde8e8;
+    color: #842029;
+    border: 1px solid #f5c2c7;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.45rem;
+    vertical-align: middle;
+    margin-left: 0.3rem;
+    font-weight: 500;
+}
+.help-body h3 { color: #0f4c3a; font-size: 1rem; font-weight: 600; margin-top: 1.4rem; margin-bottom: 0.3rem; }
+.help-body p, .help-body li { color: #333; font-size: 0.95rem; line-height: 1.65; }
+.help-body ul, .help-body ol { padding-left: 1.4rem; margin-bottom: 0.8rem; }
+.help-body li { margin-bottom: 0.2rem; }
+.help-body strong { color: #1a1a1a; }
+.help-body em { color: #6c757d; }
+.help-body code {
+    background: #f0f7f4;
+    border-radius: 3px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.88em;
+    color: #0f4c3a;
+}
+.help-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0.6rem 0 1rem; }
+.help-table th {
+    background: #0f4c3a;
+    color: #fff;
+    padding: 0.4rem 0.7rem;
+    text-align: left;
+    font-weight: 600;
+}
+.help-table td {
+    padding: 0.38rem 0.7rem;
+    color: #333;
+    border-bottom: 1px solid #c8d6d0;
+    vertical-align: top;
+}
+.help-table tr:last-child td { border-bottom: none; }
+.help-table td:first-child { font-weight: 500; color: #1a1a1a; }
+.check-yes { color: #198754; font-weight: 700; }
+.check-no  { color: #adb5bd; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-question-circle me-2"></i>Help</h2>
+    <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-light">
+        <i class="bi bi-arrow-left me-1"></i>Back to app
+    </a>
+</div>
+
+<div class="row g-4">
+
+    <!-- Sidebar table of contents -->
+    <div class="col-lg-3">
+        <div class="card sticky-top" style="top: 80px;">
+            <div class="card-header"><i class="bi bi-list me-2"></i>Contents</div>
+            <div class="card-body py-2 px-3">
+                <ul class="help-toc">
+                    <li><a href="#sec1">Getting started &amp; logging in</a></li>
+                    <li><a href="#sec2">The dashboard</a></li>
+                    <li><a href="#sec3">Leagues</a></li>
+                    <li><a href="#sec4">Teams</a></li>
+                    <li><a href="#sec5">Players</a></li>
+                    <li><a href="#sec6">Fixtures</a></li>
+                    <li><a href="#sec7">Entering match results</a></li>
+                    <li><a href="#sec8">Managing squads</a></li>
+                    <li><a href="#sec9">Match fees</a></li>
+                    <li><a href="#sec10">Quick reference</a></li>
+                    <li><a href="#sec11">Managing accounts</a></li>
+                    <li><a href="#sec12">Login activity</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="col-lg-9 help-body">
+
+        <!-- 1 -->
+        <div class="card mb-4 help-section" id="sec1">
+            <div class="card-header"><i class="bi bi-box-arrow-in-right me-2"></i>1. Getting started &amp; logging in</div>
+            <div class="card-body">
+                <p>Anyone can <strong>view</strong> everything in the app without an account — fixtures, results, player profiles, league tables. No login needed to browse.</p>
+                <p>To <strong>make changes</strong> you need to sign in. There are two account types:</p>
+                <table class="help-table">
+                    <tr><th>Role</th><th>What they can do</th></tr>
+                    <tr>
+                        <td><strong>Admin</strong></td>
+                        <td>Full access — create and edit leagues, teams, players, fixtures; manage all squads and scores; manage user accounts.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Captain</strong></td>
+                        <td>Restricted access — can manage squads, enter scores, and record match fees for fixtures involving their own team only. Cannot create or delete anything else.</td>
+                    </tr>
+                </table>
+                <p>Signing in works the same way for both roles:</p>
+                <ol>
+                    <li>Click <strong>Sign in</strong> in the top-right corner of any page.</li>
+                    <li>Enter your email address and click <strong>Send sign-in link</strong>.</li>
+                    <li>Open the email from Firebase and click the link — you'll be signed in automatically.</li>
+                    <li>You'll be returned to wherever you were.</li>
+                </ol>
+                <p>No password is required. The sign-in link can only be used once and expires shortly after it's sent.</p>
+                <p>After signing in, your role is shown in the top-right corner — admins see the <strong>Admin</strong> nav link, captains see a <strong>Captain</strong> badge.</p>
+                <p>To sign out, click <strong>Sign out</strong> in the top-right corner. Your session expires after 10 minutes of inactivity.</p>
+                <p><strong>Only one user can be logged in at a time.</strong> If someone is already logged in, the sign-in page will show a message with the time remaining on their session. A new login is only possible once that session expires or the current user logs out.</p>
+                <p>Accounts must be created by an existing admin — see <a href="#sec11">Managing accounts</a>.</p>
+            </div>
+        </div>
+
+        <!-- 2 -->
+        <div class="card mb-4 help-section" id="sec2">
+            <div class="card-header"><i class="bi bi-house-door me-2"></i>2. The dashboard (home page)</div>
+            <div class="card-body">
+                <p>The home page gives a quick overview of the club's activity.</p>
+                <p><strong>Stats row</strong> — Shows the number of leagues, teams, and fixtures recorded in total.</p>
+                <p><strong>Last 7 Days</strong> — Lists fixtures from the past week with scores. Click any fixture row to open its detail page. If there are more than three, click "Show more" to expand.</p>
+                <p><strong>Next 7 Days</strong> — Shows upcoming fixtures so you know what's coming up.</p>
+                <p>Click <strong>View All</strong> to go to the full fixture list.</p>
+            </div>
+        </div>
+
+        <!-- 3 -->
+        <div class="card mb-4 help-section" id="sec3">
+            <div class="card-header"><i class="bi bi-trophy me-2"></i>3. Leagues</div>
+            <div class="card-body">
+                <p>Navigate to <strong>Leagues</strong> from the top nav bar. Click a league name to open its detail page, which shows divisions, teams, and eligibility rules.</p>
+
+                <h3>Creating a league <span class="req-admin">admin only</span></h3>
+                <p>Fill in the <strong>New League</strong> form at the bottom of the Leagues page:</p>
+                <table class="help-table">
+                    <tr><th>Field</th><th>What it means</th></tr>
+                    <tr><td>Name</td><td>e.g. "Men's Winter League"</td></tr>
+                    <tr><td>Season start date</td><td>The Saturday that Round 1 begins — used to compute round labels on fixtures</td></tr>
+                    <tr><td>Round 5 start date</td><td>The Saturday Round 5 begins; the week before it is automatically used as the first catch-up week</td></tr>
+                    <tr><td>Round 9 start date</td><td>The Saturday Round 9 begins; the week before it is automatically used as the second catch-up week</td></tr>
+                    <tr><td>Doubles pairs per round</td><td>How many pairs play each match (usually 3)</td></tr>
+                    <tr><td>Early season weeks</td><td>Rounds where the "one fixture per player per week" rule applies</td></tr>
+                    <tr><td>Team tie threshold</td><td>Matches played before a player is locked to that team</td></tr>
+                    <tr><td>Number of divisions</td><td>How many divisions to create immediately</td></tr>
+                </table>
+
+                <h3>Other league actions <span class="req-admin">admin only</span></h3>
+                <ul>
+                    <li><strong>Edit League</strong> — update any of the fields above from the league detail page.</li>
+                    <li><strong>Add Division</strong> — type a division name and click Add on the league detail page.</li>
+                    <li><strong>Assign teams</strong> — use the team checkboxes within a division and click Save Teams.</li>
+                    <li><strong>Delete League</strong> — removes the league and all its fixtures permanently.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 4 -->
+        <div class="card mb-4 help-section" id="sec4">
+            <div class="card-header"><i class="bi bi-people me-2"></i>4. Teams</div>
+            <div class="card-body">
+                <p>Navigate to <strong>Teams</strong> from the top nav bar.</p>
+                <p>The Teams page has two sections: a <strong>team list</strong> at the top, and a <strong>squad allocation</strong> view below — a week-by-week breakdown of upcoming fixtures per league where you can reserve players.</p>
+
+                <h3>Creating a team <span class="req-admin">admin only</span></h3>
+                <p>Use the <strong>New Team</strong> form: enter a name, optionally assign a division, and tick <strong>Match fees enabled</strong> if this team tracks fee payments. Click <strong>Create Team</strong>.</p>
+
+                <h3>Team detail page</h3>
+                <p>Click a team name to see its roster, fixtures, and current captain.</p>
+                <p>The player roster shows each player's <strong>Wins</strong>, <strong>Losses</strong>, and <strong>Win %</strong> in two figures: the bold number is their record <em>for this team</em>, and the number in brackets is their record <em>across all leagues combined</em>. For example, <code>3 (10)</code> means 3 rubbers won for this team and 10 rubbers won in total.</p>
+
+                <h3>Editing a team <span class="req-login">requires login</span></h3>
+                <p>The <strong>Edit</strong> button (top-right of the team detail page) lets you rename the team and toggle match fees. Both admins and the team's own captain can do this.</p>
+
+                <h3>Other team actions <span class="req-admin">admin only</span></h3>
+                <ul>
+                    <li><strong>Add players</strong> — use the Add Players dropdown on the team detail page.</li>
+                    <li><strong>Remove a player</strong> — click the remove icon next to their name.</li>
+                    <li><strong>Set captain</strong> — click the star icon next to a player. A confirmation prompt will appear before the change is saved; clicking again (and confirming) removes them as captain. Only one captain per team is allowed — assigning a new one replaces the existing captain.</li>
+                    <li><strong>Delete team</strong> — removes the team and all its fixtures.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 5 -->
+        <div class="card mb-4 help-section" id="sec5">
+            <div class="card-header"><i class="bi bi-person-workspace me-2"></i>5. Players</div>
+            <div class="card-body">
+                <p>Navigate to <strong>Players</strong> from the top nav bar. Two views are available via the toggle buttons at the top right: <strong>Players</strong> (the default roster table) and <strong>Eligibility</strong> (the grid described below).</p>
+                <p>The <strong>Players</strong> view shows every club member with their gender, membership status, teams, fixtures played, and season ties. Use the <strong>filter boxes</strong> above each column to search.</p>
+
+                <h3>Eligibility Grid</h3>
+                <p>Switch to the <strong>Eligibility</strong> view to see a cross-table of every player (interested in teams) against every team in leagues that have eligibility restrictions configured. Rows are players; columns are teams, grouped by league.</p>
+                <p>Use the <strong>Men / Women</strong> filter to show only one gender. Click any team column header to highlight that column.</p>
+                <p>Each cell shows how many fixtures that player has played for that team, colour-coded by status:</p>
+                <table class="help-table">
+                    <tr><th>Badge</th><th>Meaning</th></tr>
+                    <tr><td>Empty green outline</td><td>Eligible — no appearances yet</td></tr>
+                    <tr><td>Green number</td><td>Eligible — N fixtures played (not yet at tie threshold)</td></tr>
+                    <tr><td>Yellow number</td><td>Tied to this team — threshold reached</td></tr>
+                    <tr><td>Faded strikethrough number</td><td>Blocked — tied to a different team at the same or a lower division</td></tr>
+                </table>
+                <p>The grid only appears when at least one league has a team tie threshold set. Players not marked as "interested in team play" are excluded.</p>
+
+                <h3>Player detail page</h3>
+                <p>Click a player's name to see their match history, win/loss record, eligibility status per league, and match fee history.</p>
+                <p>If the player has an <strong>LTA number</strong> recorded, it appears as a button below their name — click it to copy to clipboard. If the player has a <strong>contact telephone</strong> recorded, that appears alongside it, but is only visible to admins and captains who manage a team the player belongs to.</p>
+
+                <h3>Adding a player <span class="req-admin">admin only</span></h3>
+                <p>Click <strong>Add Player</strong> on the Players page and fill in:</p>
+                <table class="help-table">
+                    <tr><th>Field</th><th>Notes</th></tr>
+                    <tr><td>First &amp; last name</td><td>Required</td></tr>
+                    <tr><td>Gender</td><td>M or F</td></tr>
+                    <tr><td>Membership status</td><td>Active or Inactive</td></tr>
+                    <tr><td>Interested in team play</td><td>Yes or No — controls whether they appear in squad dropdowns</td></tr>
+                    <tr><td>LTA number</td><td>Optional but recommended</td></tr>
+                    <tr><td>Contact telephone</td><td>Optional — only visible to admins and captains of the player's teams</td></tr>
+                </table>
+                <p>If a similar name already exists, the app will warn you before creating a duplicate.</p>
+
+                <h3>Editing &amp; deleting <span class="req-admin">admin only</span></h3>
+                <p>Use the <strong>Edit</strong> or <strong>Delete</strong> buttons on a player's detail page. Deleting removes the player and all their match records; team rosters are unaffected.</p>
+            </div>
+        </div>
+
+        <!-- 6 -->
+        <div class="card mb-4 help-section" id="sec6">
+            <div class="card-header"><i class="bi bi-journal-text me-2"></i>6. Fixtures</div>
+            <div class="card-body">
+                <p>Navigate to <strong>Fixtures</strong> from the top nav bar. Fixtures are grouped by calendar week (Saturday–Friday). The current week is highlighted and scrolled into view automatically.</p>
+                <p>Each row shows the date, home vs away team, score (or a stopwatch if unplayed), round label, and league. Click either team name to open the fixture from that team's perspective.</p>
+                <p>Use the <strong>League</strong> and <strong>Team</strong> filter dropdowns at the top to narrow the list.</p>
+
+                <h3>Adding a fixture <span class="req-admin">admin only</span></h3>
+                <p><strong>Import</strong> — upload a <code>.ics</code> file exported from Google Calendar. The app matches team names automatically, shows a review screen, and skips duplicates.</p>
+                <p><strong>Add Fixture</strong> — manually enter a date, home team, away team, and league, then click Save Fixture. The correct number of rubber slots is created automatically.</p>
+
+                <h3>Bulk operations <span class="req-admin">admin only</span></h3>
+                <p>Tick fixture checkboxes (or use <strong>Select all</strong>), then use <strong>Set League</strong> to reassign fixtures in bulk, or <strong>Delete</strong> to remove them all at once.</p>
+            </div>
+        </div>
+
+        <!-- 7 -->
+        <div class="card mb-4 help-section" id="sec7">
+            <div class="card-header"><i class="bi bi-pencil-square me-2"></i>7. Entering match results</div>
+            <div class="card-body">
+                <p>Open a fixture from the Fixtures list or a team page. The <strong>Pairs</strong> table shows one row per pair, with three set columns (one rubber per column).</p>
+
+                <h3>How scoring works</h3>
+                <p>Each pair plays three rubbers against different opposition pairs. For each rubber:</p>
+                <ul>
+                    <li>Enter your team's score (left) and the opposition score (right).</li>
+                    <li><strong>T</strong> — marks the rubber as a tie (no score needed).</li>
+                    <li><strong>W</strong> — marks a walkover. Click once for a Yarm walkover, again to switch to an opposition walkover, again to clear.</li>
+                </ul>
+                <p><em>Scoring: 2 pts per rubber win · 1 pt each for a tie · 4 bonus pts to the team winning more rubbers</em></p>
+
+                <h3>Steps to enter results <span class="req-login">captain or admin</span></h3>
+                <ol>
+                    <li><strong>Select players</strong> — choose two players per row from the dropdowns. Score boxes are locked until both are selected.</li>
+                    <li><strong>Enter scores</strong> — fill in (or mark T/W) every rubber. The Save button activates only when all cells are complete.</li>
+                    <li>Click <strong>Save Results</strong>. The overall fixture score updates automatically.</li>
+                </ol>
+
+                <h3>Editing fixture details <span class="req-login">captain or admin</span></h3>
+                <p><strong>Edit</strong> (top-right) — change the date, teams, league, or overall score. The <strong>Round</strong> field defaults to auto (derived from the league's start date); pick a specific round to override it for rearranged matches. Captains can edit fixtures involving their team.</p>
+
+                <h3>Clearing or deleting <span class="req-admin">admin only</span></h3>
+                <ul>
+                    <li><strong>Clear</strong> (below the table) — resets all scores and clears squad selections.</li>
+                    <li><strong>Delete</strong> (top-right) — removes the fixture and all results. Player profiles are preserved.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 8 -->
+        <div class="card mb-4 help-section" id="sec8">
+            <div class="card-header"><i class="bi bi-people-fill me-2"></i>8. Managing squads</div>
+            <div class="card-body">
+                <p>A <strong>squad</strong> is the list of players reserved for a fixture before it's played — useful for planning and flagging eligibility issues in advance.</p>
+                <p>Squads can be managed from the <strong>Teams page</strong> (week-by-week allocation view) or from an individual <strong>fixture detail page</strong>.</p>
+
+                <h3>Selecting players <span class="req-login">captain or admin</span></h3>
+                <p>In the <strong>Squad</strong> section on a fixture page, tick the players you want and click <strong>Save Squad</strong>. Each player shows a status icon:</p>
+                <table class="help-table">
+                    <tr><th>Icon</th><th>Meaning</th></tr>
+                    <tr><td>✓ Green</td><td>Tied to this team for the season — all good</td></tr>
+                    <tr><td>⚠ Yellow</td><td>Selecting this player will tie them to this team — they'll be blocked from lower divisions after this</td></tr>
+                    <tr><td>⊘ Red</td><td>Ineligible — already tied to a different team at the same or lower division</td></tr>
+                </table>
+                <p>If a tie would be triggered, a confirmation popup explains this before saving.</p>
+
+                <h3>Eligibility rules</h3>
+                <ul>
+                    <li><strong>Early season weeks</strong> — during the first N rounds (set per league), a player can only appear in one fixture per week across all teams.</li>
+                    <li><strong>Team tie</strong> — after playing the threshold number of matches for a team, a player is locked to that team's division tier. They can still be picked for a <em>higher</em> division, but not a lower one.</li>
+                </ul>
+                <p>A player's current tie status is shown on their individual player page.</p>
+            </div>
+        </div>
+
+        <!-- 9 -->
+        <div class="card mb-4 help-section" id="sec9">
+            <div class="card-header"><i class="bi bi-cash-coin me-2"></i>9. Match fees</div>
+            <div class="card-body">
+                <p>If a team has <strong>match fees enabled</strong>, a Match Fees section appears on the fixture detail page for captains and admins.</p>
+                <p>Tick a player's checkbox to mark their fee as paid, then click <strong>Save Fees</strong>. A running count of paid vs outstanding is shown in the section header.</p>
+                <p>Match fees can be toggled on or off per team via the team's Edit settings.</p>
+            </div>
+        </div>
+
+        <!-- 10 -->
+        <div class="card mb-4 help-section" id="sec10">
+            <div class="card-header"><i class="bi bi-list-check me-2"></i>10. Quick reference: who can do what?</div>
+            <div class="card-body">
+                <table class="help-table">
+                    <tr>
+                        <th>Action</th>
+                        <th style="text-align:center;width:90px">Captain</th>
+                        <th style="text-align:center;width:90px">Admin</th>
+                    </tr>
+                    <tr><td>View fixtures, results, player profiles, leagues</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Manage squad for own team's fixtures</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Enter match results for own team's fixtures</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Record match fee payments for own team</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Edit own team's name and settings</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Manage squads / results for <em>any</em> fixture</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Add or edit fixtures</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Clear or delete fixtures</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Import fixtures from a calendar file</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>View contact telephone for players on own team</td><td class="check-yes" style="text-align:center">✓</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Add or edit players</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Add or remove team players</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Set or remove a team captain</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Create or delete teams</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Create or edit leagues and divisions</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Bulk delete or reassign fixtures</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                    <tr><td>Manage admin and captain accounts</td><td class="check-no" style="text-align:center">—</td><td class="check-yes" style="text-align:center">✓</td></tr>
+                </table>
+                <p class="text-muted small mt-2"><i class="bi bi-info-circle me-1"></i>Captains can only act on fixtures where their team is playing — they cannot edit other teams' fixtures.</p>
+            </div>
+        </div>
+
+        <!-- 11 -->
+        <div class="card mb-4 help-section" id="sec11">
+            <div class="card-header"><i class="bi bi-shield-lock me-2"></i>11. Managing accounts</div>
+            <div class="card-body">
+                <p>Account management is available via <strong>Admin</strong> in the top nav bar (visible to admins only). All user management is on a single <strong>User Access</strong> page — admins and captains are registered here together.</p>
+
+                <h3>Adding an admin <span class="req-admin">admin only</span></h3>
+                <ol>
+                    <li>Go to <strong>Admin → User Access</strong>.</li>
+                    <li>Enter the new admin's email address, select <strong>Admin</strong> as the access level, and click <strong>Add user</strong>.</li>
+                    <li>Tell them to go to <code>/login</code>, enter their email, and click the sign-in link that Firebase emails them.</li>
+                </ol>
+                <p>No password is set — sign-in always uses an emailed link. Any Firebase user not assigned as a captain is treated as an admin.</p>
+
+                <h3>Adding a captain <span class="req-admin">admin only</span></h3>
+                <p>Captain accounts give a team captain access to manage their team's fixtures without full admin privileges.</p>
+                <ol>
+                    <li>Make sure the captain has a <strong>Player profile</strong> in the app and is set as the <strong>captain of their team</strong> on the team detail page.</li>
+                    <li>Go to <strong>Admin → User Access</strong>, enter their email, select <strong>Captain</strong> as the access level, and choose their linked player from the dropdown.</li>
+                    <li>Click <strong>Add user</strong>. Their Firebase account and captain role are created in one step.</li>
+                    <li>Tell them to go to <code>/login</code> and sign in with their email.</li>
+                </ol>
+                <p>On sign-in, they will have captain-level access. If a captain is linked to a player who captains multiple teams, they can manage fixtures for all of those teams.</p>
+
+                <h3>Removing a user <span class="req-admin">admin only</span></h3>
+                <p>On the User Access page, click the <i class="bi bi-trash"></i> button next to the account and confirm. The Firebase account is deleted immediately — they will no longer be able to sign in. You cannot delete your own account.</p>
+            </div>
+        </div>
+
+        <!-- 12 -->
+        <div class="card mb-4 help-section" id="sec12">
+            <div class="card-header"><i class="bi bi-clock-history me-2"></i>12. Login activity <span class="req-login">login required</span></div>
+            <div class="card-body">
+                <p>The <strong>Activity</strong> page (visible in the top nav bar when signed in) shows all sign-in sessions from the last 30 days.</p>
+                <p>For each session it shows:</p>
+                <ul>
+                    <li>The email address of the user who signed in</li>
+                    <li>Their role at the time of the session (Admin, Captain, or Viewer)</li>
+                    <li>When they signed in and when they signed out</li>
+                    <li>The total session duration</li>
+                    <li>Whether the session ended via an explicit sign-out or timed out due to inactivity</li>
+                </ul>
+                <p>This page is visible to all signed-in users (admins and captains) for transparency and auditing purposes.</p>
+            </div>
+        </div>
+
+    </div><!-- /col -->
+</div><!-- /row -->
+{% endblock %}

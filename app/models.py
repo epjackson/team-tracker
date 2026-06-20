@@ -1,6 +1,6 @@
 """Database models for the tennis team recording app."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask_sqlalchemy import SQLAlchemy
 
@@ -30,7 +30,20 @@ class League(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False, unique=True)
     description = db.Column(db.Text, nullable=True)
-    start_date = db.Column(db.Date, nullable=True, comment="Monday that starts Round 1")
+    start_date = db.Column(db.Date, nullable=True, comment="Saturday that starts Round 1")
+    round5_start_date = db.Column(
+        db.Date,
+        nullable=True,
+        comment="Saturday that Round 5 begins (after the first catch-up week)",
+    )
+    round9_start_date = db.Column(
+        db.Date,
+        nullable=True,
+        comment="Saturday that Round 9 begins (after the second catch-up week)",
+    )
+    pairs_per_round = db.Column(
+        db.Integer, nullable=True, comment="Number of doubles pairs per round"
+    )
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     divisions = db.relationship(
@@ -166,6 +179,7 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     division_id = db.Column(db.Integer, db.ForeignKey("divisions.id"), nullable=True)
+    match_fees_enabled = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     players = db.relationship("Player", secondary=player_teams, backref="teams", lazy="dynamic")
@@ -199,7 +213,7 @@ class Player(db.Model):
     gender = db.Column(db.String(1), nullable=False)  # 'M' or 'F'
     membership_status = db.Column(db.String(10), nullable=False)  # 'active' or 'inactive'
     interest_team_play = db.Column(db.String(3), nullable=False)  # 'yes' or 'no'
-    lta_number = db.Column(db.String(30), nullable=False)
+    lta_number = db.Column(db.String(30), nullable=True)
     contact_telephone = db.Column(db.String(30), nullable=True)
     miscellaneous = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -281,12 +295,18 @@ class Rubber(db.Model):
     fixture_id = db.Column(db.Integer, db.ForeignKey("fixtures.id"), nullable=False)
     rubber_number = db.Column(db.Integer, nullable=False)  # 1-based index within fixture
     rubber_type = db.Column(db.String(20), default="singles")  # singles or doubles
+    home_player_1 = db.Column(db.String(120), nullable=True)
+    home_player_2 = db.Column(db.String(120), nullable=True)
     home_set1 = db.Column(db.Integer, nullable=True)
     away_set1 = db.Column(db.Integer, nullable=True)
+    set1_tie = db.Column(db.Boolean, default=False, nullable=True)
+    set1_walkover = db.Column(db.String(10), nullable=True)  # 'home', 'away', or None
     home_set2 = db.Column(db.Integer, nullable=True)
     away_set2 = db.Column(db.Integer, nullable=True)
+    set2_tie = db.Column(db.Boolean, default=False, nullable=True)
     home_set3 = db.Column(db.Integer, nullable=True)
     away_set3 = db.Column(db.Integer, nullable=True)
+    set3_tie = db.Column(db.Boolean, default=False, nullable=True)
     winner = db.Column(db.String(10), nullable=True)  # "home", "away", or "tie"
 
     player_results = db.relationship(
@@ -311,25 +331,179 @@ class PlayerMatchResult(db.Model):
 
     __table_args__ = (db.UniqueConstraint("player_id", "rubber_id", name="uq_player_rubber"),)
 
+    @property
+    def is_walkover(self):
+        """Return True if this result was from a walkover rubber."""
+        return bool(self.rubber.set1_walkover)
+
     def __repr__(self):
         """Return string representation of PlayerMatchResult."""
         return f"<PlayerMatchResult player={self.player_id} rubber={self.rubber_id}>"
 
 
+class TeamCaptain(db.Model):
+    """Records who is captain of a team for a given season.
+
+    At most one captain per team per season. A player may captain multiple teams.
+    """
+
+    __tablename__ = "team_captains"
+
+    id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=False)
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=False)
+    season = db.Column(db.String(20), nullable=False, default="2026")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    player = db.relationship("Player", backref="captaincies")
+    team = db.relationship("Team", backref="captains")
+
+    __table_args__ = (db.UniqueConstraint("team_id", "season", name="uq_team_captain_season"),)
+
+    def __repr__(self):
+        """Return string representation of TeamCaptain."""
+        return f"<TeamCaptain player={self.player_id} team={self.team_id} season={self.season}>"
+
+
+class FixtureSquadEntry(db.Model):
+    """A player reserved in the squad for a fixture by the captain."""
+
+    __tablename__ = "fixture_squad_entries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    fixture_id = db.Column(db.Integer, db.ForeignKey("fixtures.id"), nullable=False)
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=False)
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    player = db.relationship("Player", backref="squad_entries")
+    fixture = db.relationship("Fixture", backref="squad_entries")
+    team = db.relationship("Team", backref="squad_entries")
+
+    __table_args__ = (
+        db.UniqueConstraint("fixture_id", "player_id", name="uq_fixture_player_squad"),
+    )
+
+    def __repr__(self):
+        """Return string representation of FixtureSquadEntry."""
+        return f"<FixtureSquadEntry fixture={self.fixture_id} player={self.player_id}>"
+
+
+class MatchFeePaid(db.Model):
+    """Records that a player has paid their match fee for a fixture."""
+
+    __tablename__ = "match_fees_paid"
+
+    id = db.Column(db.Integer, primary_key=True)
+    fixture_id = db.Column(db.Integer, db.ForeignKey("fixtures.id"), nullable=False)
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=False)
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
+    paid_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    player = db.relationship("Player", backref="match_fees")
+    fixture = db.relationship("Fixture", backref="match_fees")
+    team = db.relationship("Team", backref="match_fees")
+
+    __table_args__ = (db.UniqueConstraint("fixture_id", "player_id", name="uq_fee_fixture_player"),)
+
+    def __repr__(self):
+        """Return string representation of MatchFeePaid."""
+        return f"<MatchFeePaid fixture={self.fixture_id} player={self.player_id}>"
+
+
+class CaptainUser(db.Model):
+    """Maps a Firebase UID to a player, granting captain-level access.
+
+    All Firebase users without a CaptainUser record are treated as admins.
+    A CaptainUser is linked to a Player who has TeamCaptain records determining
+    which teams they can manage.
+    """
+
+    __tablename__ = "captain_users"
+
+    uid = db.Column(db.String(128), primary_key=True)
+    email = db.Column(db.String(200), nullable=False)
+    player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    player = db.relationship("Player", backref="captain_login")
+
+    def __repr__(self):
+        """Return string representation of CaptainUser."""
+        return f"<CaptainUser uid={self.uid} email={self.email}>"
+
+
+class AppSetting(db.Model):
+    """Key-value store for application-level metadata."""
+
+    __tablename__ = "app_settings"
+
+    key = db.Column(db.String(64), primary_key=True)
+    value = db.Column(db.String(256), nullable=True)
+
+    def __repr__(self):
+        """Return string representation of AppSetting."""
+        return f"<AppSetting {self.key}={self.value}>"
+
+
+class LoginEvent(db.Model):
+    """Records each login and logout for auditing purposes."""
+
+    __tablename__ = "login_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    uid = db.Column(db.String(128), nullable=False)
+    email = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), nullable=False)
+    logged_in_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    logged_out_at = db.Column(db.DateTime, nullable=True)
+
+    def __repr__(self):
+        """Return string representation of LoginEvent."""
+        return f"<LoginEvent uid={self.uid} at={self.logged_in_at}>"
+
+
 # ── Helper: round label ──────────────────────────────────────────────────
 
 
-def fixture_round_label(fixture_date: date, league_start_date) -> str | None:
+def fixture_round_label(
+    fixture_date: date,
+    league_start_date,
+    round5_start_date=None,
+    round9_start_date=None,
+) -> str | None:
     """Return the round label for a fixture given the league start date.
 
-    Schedule: Rounds 1-4, one catch-up week, Rounds 5-8, one catch-up week,
-    then Rounds 9+ continue without further gaps.
+    When round5_start_date / round9_start_date are provided, catch-up weeks are
+    inferred as the week immediately before each of those dates.  Otherwise falls
+    back to the original hardcoded schedule: Rounds 1-4, catch-up week,
+    Rounds 5-8, catch-up week, then Rounds 9+.
 
-    Returns 'Round N', 'Catch-up Week', or None if no start date or date is
-    before the season begins.
+    Returns 'Round N', 'Catch-up Week', or None if no start date or the fixture
+    date is before the season begins.
     """
     if not league_start_date or fixture_date < league_start_date:
         return None
+
+    if round5_start_date or round9_start_date:
+        catchup1_start = round5_start_date - timedelta(days=7) if round5_start_date else None
+        catchup2_start = round9_start_date - timedelta(days=7) if round9_start_date else None
+
+        if round9_start_date and fixture_date >= round9_start_date:
+            week = (fixture_date - round9_start_date).days // 7
+            return f"Round {week + 9}"
+        if catchup2_start and fixture_date >= catchup2_start:
+            return "Catch-up Week"
+        if round5_start_date and fixture_date >= round5_start_date:
+            week = (fixture_date - round5_start_date).days // 7
+            return f"Round {week + 5}"
+        if catchup1_start and fixture_date >= catchup1_start:
+            return "Catch-up Week"
+        # Before first catch-up week
+        week = (fixture_date - league_start_date).days // 7
+        return f"Round {week + 1}"
+
+    # Fallback: original hardcoded offsets
     week = (fixture_date - league_start_date).days // 7
     if week < 4:
         return f"Round {week + 1}"
@@ -346,18 +520,33 @@ def fixture_round_label(fixture_date: date, league_start_date) -> str | None:
 # ── Helper: eligibility check ─────────────────────────────────────────────
 
 
+def _division_rank(division_name: str) -> float:
+    """Parse the numeric tier from a name like 'Division 4'. Higher number = lower tier."""
+    try:
+        return int(division_name.split()[-1])
+    except (ValueError, AttributeError):
+        return float("inf")
+
+
 def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> dict:
     """Check whether a player is eligible to play for a team in a league.
 
+    Once a player reaches the team_commitment_threshold for a team, they are tied to
+    that team's division tier. They may still play for other teams in the same division
+    and may move up to a higher-ranked division, but cannot drop to a lower-ranked
+    division (higher division number, e.g. committed in Division 3, blocked from Division 4+).
+
     Returns a dict with:
         - eligible (bool): whether the player can play
-        - current_fixtures (int): how many fixtures they've already played in
+        - current_fixtures (int): fixtures played for this specific team in this league
         - commitment_threshold (int|None): the fixture threshold for team commitment
         - restriction_description (str|None): human-readable rule
+        - committed_to_different_team (bool): ineligible due to divisional commitment
+        - commitment_info (str|None): name of the committed team if already committed here
     """
     from sqlalchemy import func
 
-    # Count unique fixtures this player has played in for this team in this league
+    # Count unique fixtures where the player played *for* this team (side-matched).
     current_fixtures = (
         db.session.query(func.count(func.distinct(Fixture.id)))
         .join(Rubber, Fixture.id == Rubber.fixture_id)
@@ -365,7 +554,10 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
         .filter(
             PlayerMatchResult.player_id == player_id,
             Fixture.league_id == league_id,
-            Fixture.home_team_id.in_([team_id, None]) | Fixture.away_team_id.in_([team_id, None]),
+            db.or_(
+                db.and_(Fixture.home_team_id == team_id, PlayerMatchResult.side == "home"),
+                db.and_(Fixture.away_team_id == team_id, PlayerMatchResult.side == "away"),
+            ),
         )
         .scalar()
         or 0
@@ -378,36 +570,134 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
     committed_to_different_team = False
     commitment_info = None
 
-    # Check team commitment restrictions
     if restriction and restriction.team_commitment_threshold > 0:
         commitment_threshold = restriction.team_commitment_threshold
         restriction_description = restriction.description or (
-            f"Player tied to first team after {commitment_threshold} fixtures in {league_id}"
+            f"Player tied to division after {commitment_threshold} fixtures; "
+            "cannot play in the same or a lower division"
         )
 
-        # Look for existing commitment for this player in this league
         existing_commitment = PlayerTeamCommitment.query.filter_by(
             player_id=player_id, league_id=league_id
         ).first()
 
-        if existing_commitment:
-            # Player is committed to a team
-            if existing_commitment.team_id != team_id:
-                # Trying to play for a different team
-                committed_to_different_team = True
-            else:
-                # Already committed to this team - track it
-                commitment_info = existing_commitment.team.name
+        # Determine the effective committed team: the highest-division team
+        # where the player either has a formal record or has hit the count threshold.
+        # This handles stale formal records (e.g. committed to Div 2 formally but
+        # has since crossed the threshold for a Div 1 team).
+        effective_committed_team = existing_commitment.team if existing_commitment else None
+        effective_committed_rank = (
+            _division_rank(effective_committed_team.division.name)
+            if (effective_committed_team and effective_committed_team.division)
+            else float("inf")
+        )
 
-    eligible = True
-    if committed_to_different_team:
-        eligible = False
+        # Scan higher divisions for a count-based commitment that outranks the formal one.
+        all_league_teams = (
+            Team.query.join(Division, Team.division_id == Division.id)
+            .filter(Division.league_id == league_id)
+            .all()
+        )
+        all_league_teams.sort(
+            key=lambda t: _division_rank(t.division.name) if t.division else float("inf")
+        )
+        for lt in all_league_teams:
+            lt_rank = _division_rank(lt.division.name) if lt.division else float("inf")
+            if lt_rank >= effective_committed_rank:
+                break  # Only care about divisions higher than the current effective commitment
+            lt_count = (
+                db.session.query(func.count(func.distinct(Fixture.id)))
+                .join(Rubber, Fixture.id == Rubber.fixture_id)
+                .join(PlayerMatchResult, Rubber.id == PlayerMatchResult.rubber_id)
+                .filter(
+                    PlayerMatchResult.player_id == player_id,
+                    Fixture.league_id == league_id,
+                    db.or_(
+                        db.and_(Fixture.home_team_id == lt.id, PlayerMatchResult.side == "home"),
+                        db.and_(Fixture.away_team_id == lt.id, PlayerMatchResult.side == "away"),
+                    ),
+                )
+                .scalar()
+                or 0
+            )
+            if lt_count >= commitment_threshold:
+                effective_committed_team = lt
+                effective_committed_rank = lt_rank
+                break
+
+        if effective_committed_team:
+            if (
+                existing_commitment
+                and existing_commitment.team_id == team_id
+                and effective_committed_team.id == team_id
+            ):
+                commitment_info = effective_committed_team.name
+            elif effective_committed_team.id != team_id:
+                committed_div = effective_committed_team.division
+                target_team = Team.query.get(team_id)
+                target_div = target_team.division if target_team else None
+
+                if committed_div and target_div:
+                    target_rank = _division_rank(target_div.name)
+                    if target_rank > effective_committed_rank:
+                        committed_to_different_team = True
+                        restriction_description = (
+                            f"Tied to {effective_committed_team.name} ({committed_div.name}) — "
+                            "cannot drop to a lower division."
+                        )
+                else:
+                    committed_to_different_team = True
+                    restriction_description = (
+                        f"Tied to {effective_committed_team.name} in this league"
+                    )
+            else:
+                commitment_info = effective_committed_team.name
 
     return {
-        "eligible": eligible,
+        "eligible": not committed_to_different_team,
         "current_fixtures": current_fixtures,
         "commitment_threshold": commitment_threshold,
         "restriction_description": restriction_description,
         "committed_to_different_team": committed_to_different_team,
         "commitment_info": commitment_info,
     }
+
+
+def check_week_conflict(player_id: int, fixture_date: date, exclude_fixture_id: int):
+    """Return the conflicting Fixture if the player is committed to another fixture this week.
+
+    Checks both confirmed rubber results and squad reservations in other fixtures
+    that fall in the same Mon–Sun week as fixture_date. Returns None if no conflict.
+    """
+    week_start = fixture_date - timedelta(days=fixture_date.weekday())
+    week_end = week_start + timedelta(days=6)
+
+    rubber_fixture = (
+        db.session.query(Fixture)
+        .join(Rubber, Fixture.id == Rubber.fixture_id)
+        .join(PlayerMatchResult, Rubber.id == PlayerMatchResult.rubber_id)
+        .filter(
+            PlayerMatchResult.player_id == player_id,
+            Fixture.id != exclude_fixture_id,
+            Fixture.date >= week_start,
+            Fixture.date <= week_end,
+        )
+        .first()
+    )
+    if rubber_fixture:
+        return rubber_fixture
+
+    squad_fixture_id = (
+        db.session.query(FixtureSquadEntry.fixture_id)
+        .join(Fixture, FixtureSquadEntry.fixture_id == Fixture.id)
+        .filter(
+            FixtureSquadEntry.player_id == player_id,
+            FixtureSquadEntry.fixture_id != exclude_fixture_id,
+            Fixture.date >= week_start,
+            Fixture.date <= week_end,
+        )
+        .first()
+    )
+    if squad_fixture_id:
+        return Fixture.query.get(squad_fixture_id[0])
+    return None

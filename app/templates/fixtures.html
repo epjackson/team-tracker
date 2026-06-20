@@ -1,90 +1,220 @@
 {% extends "base.html" %}
 {% block title %}Fixtures — Team Tracker{% endblock %}
 
+{% block extra_css %}
+<style>
+    .week-card { transition: none !important; }
+    .week-card:hover { transform: none !important; box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important; }
+    .week-card.current-week { border: 2px solid #0d6efd !important; box-shadow: 0 0 0 5px rgba(13,110,253,0.25) !important; }
+    .current-week-header { background: #0d6efd; color: #fff; font-size: 0.78rem; font-weight: 700;
+        letter-spacing: 0.07em; text-transform: uppercase; padding: 0.3rem 0.85rem;
+        border-radius: 10px 10px 0 0; }
+    .fixtures-sticky-header { position: sticky; top: 0; z-index: 200;
+        background: linear-gradient(135deg, #0f4c3a, #1a6b50);
+        padding-bottom: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.35); }
+    .today-label { font-weight: 700; color: #0d6efd; letter-spacing: 0.03em; }
+    .fixture-item:hover { background-color: #f8f9fa; }
+    .fixture-item:last-child { border-bottom: none !important; }
+    .score-vs { font-weight: 700; color: #adb5bd; font-size: 0.95rem; letter-spacing: 1px; }
+.fixture-team { flex: 1 1 0; min-width: 0; }
+    .fixture-score-col .score-badge { min-width: 1.8rem; display: inline-block; text-align: center; }
+    .link-hover:hover { text-decoration: underline !important; }
+    .fixture-hidden { display: none !important; }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="text-white mb-0"><i class="bi bi-journal-text me-2"></i>Fixtures</h2>
-    <div class="d-flex gap-2">
-        <button id="bulk-assign-btn" type="button" class="btn btn-outline-light d-none"
-                data-bs-toggle="modal" data-bs-target="#bulkAssignModal">
-            <i class="bi bi-tag me-1"></i>Set League (<span class="selected-count-display">0</span>)
-        </button>
-        <button id="bulk-delete-btn" type="button" class="btn btn-outline-danger d-none"
-                data-bs-toggle="modal" data-bs-target="#bulkDeleteModal">
-            <i class="bi bi-trash me-1"></i>Delete selected (<span id="selected-count">0</span>)
-        </button>
-        <a href="{{ url_for('import_ics') }}" class="btn btn-outline-light">
-            <i class="bi bi-calendar-plus me-1"></i>Import Calendar
-        </a>
-        <a href="{{ url_for('manual_fixture_entry') }}" class="btn btn-outline-light">
-            <i class="bi bi-pencil me-1"></i>Manual Entry
-        </a>
+<div id="sticky-header" class="fixtures-sticky-header">
+    <div class="d-flex justify-content-between align-items-center pt-3 pb-2">
+        <h2 class="text-white mb-0"><i class="bi bi-journal-text me-2"></i>Fixtures</h2>
+        {% if is_admin %}
+        <div class="d-flex gap-2 flex-wrap">
+            <button id="bulk-assign-btn" type="button" class="btn btn-outline-light d-none"
+                    data-bs-toggle="modal" data-bs-target="#bulkAssignModal">
+                <i class="bi bi-tag me-1"></i>Set League (<span class="selected-count-display">0</span>)
+            </button>
+            <button id="bulk-delete-btn" type="button" class="btn btn-outline-danger d-none"
+                    data-bs-toggle="modal" data-bs-target="#bulkDeleteModal">
+                <i class="bi bi-trash me-1"></i>Delete (<span id="selected-count">0</span>)
+            </button>
+            <a href="{{ url_for('import_ics') }}" class="btn btn-outline-light">
+                <i class="bi bi-calendar-plus me-1"></i>Import
+            </a>
+            <a href="{{ url_for('manual_fixture_entry') }}" class="btn btn-outline-light">
+                <i class="bi bi-pencil me-1"></i>Add Fixture
+            </a>
+        </div>
+        {% endif %}
     </div>
-</div>
-
-
-{% if fixtures %}
-<form id="bulk-delete-form" method="POST" action="{{ url_for('bulk_delete_fixtures') }}">
-    <div class="card">
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th class="ps-3" style="width:2.5rem;">
-                            <input type="checkbox" id="select-all-fixtures" class="form-check-input" title="Select all">
-                        </th>
-                        <th>Date</th>
-                        <th>Round</th>
-                        <th>Home Team</th>
-                        <th>Score</th>
-                        <th>Away Team</th>
-                        <th>Rubbers</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for fixture in fixtures %}
-                    <tr class="fixture-row" style="cursor:pointer;"
-                        data-href="{{ url_for('fixture_detail', fixture_id=fixture.id) }}">
-                        <td class="ps-3" onclick="event.stopPropagation()">
-                            <input type="checkbox" name="fixture_ids" value="{{ fixture.id }}"
-                                   class="form-check-input fixture-check">
-                        </td>
-                        <td>{{ fixture.date.strftime('%d %b %Y') }}</td>
-                        <td>
-                            {% set _eff_league = fixture.league or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none) or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
-                            {% set display_round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none) %}
-                            {% if display_round %}
-                            <span class="badge bg-secondary">{{ display_round }}</span>
-                            {% else %}
-                            <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
-                        <td class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}</td>
-                        <td class="text-center">
-                            <span class="score-badge score-home me-1">{{ fixture.home_score }}</span>
-                            <span class="text-muted">-</span>
-                            <span class="score-badge score-away ms-1">{{ fixture.away_score }}</span>
-                        </td>
-                        <td class="fw-bold">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</td>
-                        <td class="text-center">{{ (fixture.rubbers|list)|length }}</td>
-                        <td onclick="event.stopPropagation()">
-                            <button type="button" class="btn btn-sm btn-outline-danger"
-                                    data-bs-toggle="modal" data-bs-target="#deleteFixtureModal{{ fixture.id }}"
-                                    title="Delete fixture">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </td>
-                    </tr>
+    {% if fixture_groups %}
+    <!-- Filter bar -->
+    <div id="filter-bar" class="card mb-0">
+    <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap gap-3 align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                <label class="text-muted small mb-0" for="filter-league">League</label>
+                <select id="filter-league" class="form-select form-select-sm" style="width:auto">
+                    <option value="">All leagues</option>
+                    {% for league in filter_leagues %}
+                    <option value="{{ league.id }}">{{ league.name }}</option>
                     {% endfor %}
-                </tbody>
-            </table>
+                </select>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <label class="text-muted small mb-0" for="filter-team">Team</label>
+                <select id="filter-team" class="form-select form-select-sm" style="width:auto">
+                    <option value="">All teams</option>
+                    {% set _groups = [("Women's", "women"), ("Men's", "men"), ("Mixed", "mixed")] %}
+                    {% for label, key in _groups %}
+                    {% set ns = namespace(teams=[]) %}
+                    {% for team in filter_teams %}
+                        {% set _ln = (team.division.league.name if team.division and team.division.league else '') | lower %}
+                        {% if key in _ln %}{% set ns.teams = ns.teams + [team] %}{% endif %}
+                    {% endfor %}
+                    {% if ns.teams %}
+                    <optgroup label="{{ label }}">
+                        {% for team in ns.teams %}
+                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    {% endif %}
+                    {% endfor %}
+                    {% set ns2 = namespace(teams=[]) %}
+                    {% for team in filter_teams %}
+                        {% set _ln = (team.division.league.name if team.division and team.division.league else '') | lower %}
+                        {% if 'men' not in _ln and 'women' not in _ln and 'mixed' not in _ln %}
+                            {% set ns2.teams = ns2.teams + [team] %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if ns2.teams %}
+                    <optgroup label="Other">
+                        {% for team in ns2.teams %}
+                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    {% endif %}
+                </select>
+            </div>
+            {% if is_admin %}
+            <div class="d-flex align-items-center gap-2 ms-auto">
+                <input type="checkbox" id="select-all-cb" class="form-check-input" title="Select all visible fixtures">
+                <label class="text-muted small mb-0 user-select-none" for="select-all-cb">Select all</label>
+            </div>
+            {% endif %}
+            <span id="filter-summary" class="text-muted small">{{ fixtures|length }} fixture{{ 's' if fixtures|length != 1 else '' }}</span>
         </div>
     </div>
+</div>
+    {% endif %}
+</div><!-- /sticky-header -->
+
+{% if fixture_groups %}
+<div class="pt-4">
+<form id="bulk-delete-form" method="POST" action="{{ url_for('bulk_delete_fixtures') }}">
+    {% for group in fixture_groups %}
+    <div class="week-section mb-4" data-week="{{ loop.index0 }}">
+        <div class="card week-card{% if group.week_start == today_week_start %} current-week{% endif %}">
+            {% if group.week_start == today_week_start %}
+            <div class="current-week-header">
+                <i class="bi bi-calendar-check me-1"></i>This week
+            </div>
+            {% endif %}
+            <div class="card-body p-0">
+                {% for fixture in group.fixtures %}
+                {% set _eff_league = fixture.league
+                    or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none)
+                    or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
+                {% set _round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none, _eff_league.round5_start_date if _eff_league else none, _eff_league.round9_start_date if _eff_league else none) %}
+                <div class="fixture-item d-flex align-items-center px-3 py-3 border-bottom"
+                     data-league-id="{{ _eff_league.id if _eff_league else '' }}"
+                     data-home-team-id="{{ fixture.home_team_id or '' }}"
+                     data-away-team-id="{{ fixture.away_team_id or '' }}"
+                     data-home-score="{{ fixture.home_score }}"
+                     data-away-score="{{ fixture.away_score }}">
+                    {% if is_admin %}
+                    <!-- Checkbox -->
+                    <div class="flex-shrink-0 me-3" onclick="event.stopPropagation()">
+                        <input type="checkbox" name="fixture_ids" value="{{ fixture.id }}"
+                               class="form-check-input fixture-check">
+                    </div>
+                    {% endif %}
+                    <!-- Date -->
+                    <div class="flex-shrink-0 me-3 d-none d-sm-block text-muted small"
+                         style="min-width:80px">
+                        {% if fixture.date == today %}
+                        <span class="today-label">TODAY</span>
+                        {% else %}
+                        {{ fixture.date.strftime('%a %d %b') }}
+                        {% endif %}
+                    </div>
+                    <!-- Match: home – score – away -->
+                    <div class="d-flex align-items-center flex-grow-1 min-w-0 gap-2">
+                        {% if fixture.home_team %}
+                        <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.home_team_id) }}"
+                           class="fixture-team fw-semibold text-end text-truncate text-decoration-none text-reset link-hover"
+                           onclick="event.stopPropagation()">{{ fixture.home_team.name }}</a>
+                        {% elif fixture.home_team_name %}
+                        <span class="fixture-team fw-semibold text-end text-truncate text-muted">{{ fixture.home_team_name }}</span>
+                        {% else %}
+                        <span class="fixture-team fw-semibold text-end text-truncate text-muted">—</span>
+                        {% endif %}
+                        <div class="fixture-score-col flex-shrink-0 text-center" style="min-width:96px">
+                            {% if fixture.home_score == 0 and fixture.away_score == 0 %}
+                            <span class="score-badge score-home"><i class="bi bi-stopwatch"></i></span>
+                            <span class="mx-1 text-muted fw-bold">–</span>
+                            <span class="score-badge score-away"><i class="bi bi-stopwatch"></i></span>
+                            {% else %}
+                            <span class="score-badge score-home">{{ fixture.home_score }}</span>
+                            <span class="mx-1 text-muted fw-bold">–</span>
+                            <span class="score-badge score-away">{{ fixture.away_score }}</span>
+                            {% endif %}
+                            <div class="wl-badge-wrap d-none mt-1"><span class="wl-badge badge" style="font-size:0.65rem;font-weight:700;letter-spacing:0.05em"></span></div>
+                        </div>
+                        {% if fixture.away_team %}
+                        <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.away_team_id) }}"
+                           class="fixture-team fw-semibold text-truncate text-decoration-none text-reset link-hover"
+                           onclick="event.stopPropagation()">{{ fixture.away_team.name }}</a>
+                        {% elif fixture.away_team_name %}
+                        <span class="fixture-team fw-semibold text-truncate text-muted">{{ fixture.away_team_name }}</span>
+                        {% else %}
+                        <span class="fixture-team fw-semibold text-truncate text-muted">—</span>
+                        {% endif %}
+                    </div>
+                    <!-- Round + League badges (hidden on mobile) -->
+                    <div class="flex-shrink-0 d-none d-md-flex align-items-center gap-1 ms-3">
+                        {% if _round %}
+                        <span class="badge bg-primary text-truncate" style="max-width:90px"
+                              title="{{ _round }}">{{ _round }}</span>
+                        {% endif %}
+                        {% if _eff_league %}
+                        {% set _league_label = "Women's" if "Women's" in _eff_league.name else ("Mixed" if "Mixed" in _eff_league.name else ("Men's" if "Men's" in _eff_league.name else _eff_league.name)) %}
+                        <span class="badge bg-secondary"
+                              title="{{ _eff_league.name }}">{{ _league_label }}</span>
+                        {% endif %}
+                    </div>
+                    {% if is_admin %}
+                    <!-- Delete button -->
+                    <div class="flex-shrink-0 ms-2" onclick="event.stopPropagation()">
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                data-bs-toggle="modal"
+                                data-bs-target="#deleteFixtureModal{{ fixture.id }}"
+                                title="Delete fixture">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </form>
 
-<!-- Per-row delete modals (separate forms, outside the bulk form) -->
-{% for fixture in fixtures %}
+{% if is_admin %}
+<!-- Per-row delete modals (outside the bulk form) -->
+{% for group in fixture_groups %}{% for fixture in group.fixtures %}
 <div class="modal fade" id="deleteFixtureModal{{ fixture.id }}" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -96,7 +226,12 @@
                 <div class="modal-body">
                     <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
                     <p>Are you sure you want to delete this fixture?</p>
-                    <p class="fw-bold">{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }} vs {{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }} on {{ fixture.date.strftime('%d %b %Y') }}</p>
+                    <p class="fw-bold">
+                        {{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }}
+                        vs
+                        {{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}
+                        on {{ fixture.date.strftime('%d %b %Y') }}
+                    </p>
                     <p class="text-muted">This will delete the fixture, all its {{ (fixture.rubbers|list)|length }} rubber(s), and all associated player match records. Player profiles will be preserved.</p>
                 </div>
                 <div class="modal-footer">
@@ -107,8 +242,10 @@
         </div>
     </div>
 </div>
-{% endfor %}
+{% endfor %}{% endfor %}
+{% endif %}{# is_admin — delete modals and bulk modals #}
 
+{% if is_admin %}
 <!-- Bulk assign league modal -->
 <div class="modal fade" id="bulkAssignModal" tabindex="-1">
     <div class="modal-dialog">
@@ -161,45 +298,129 @@
         </div>
     </div>
 </div>
+{% endif %}{# is_admin — bulk modals #}
 
 <script>
-document.querySelectorAll('.fixture-row').forEach(function (row) {
-    row.addEventListener('click', function () {
-        window.location.href = row.dataset.href;
-    });
-});
-
 (function () {
-    const checkboxes = document.querySelectorAll('.fixture-check');
-    const selectAll = document.getElementById('select-all-fixtures');
+    // Disable browser scroll restoration so it doesn't override our animation
+    if ('scrollRestoration' in history) { history.scrollRestoration = 'manual'; }
+    window.scrollTo(0, 0);
+
+    // After load, smoothly scroll current week to the vertical centre of the viewport
+    window.addEventListener('load', function () {
+        var currentWeek = document.querySelector('.current-week');
+        if (!currentWeek) { return; }
+        setTimeout(function () {
+            var stickyHeader = document.getElementById('sticky-header');
+            var stickyHeight = stickyHeader ? stickyHeader.offsetHeight : 0;
+            var cardTop = currentWeek.getBoundingClientRect().top + window.scrollY;
+            var cardCenter = cardTop + currentWeek.offsetHeight / 2;
+            var viewportCenter = stickyHeight + (window.innerHeight - stickyHeight) / 2;
+            window.scrollTo({ top: Math.max(0, cardCenter - viewportCenter), behavior: 'smooth' });
+        }, 300);
+    });
+
+    // Filtering by league / team (runs for all users)
+    (function setupFilters() {
+        const filterLeague = document.getElementById('filter-league');
+        const filterTeam = document.getElementById('filter-team');
+        const filterSummary = document.getElementById('filter-summary');
+        const selectAllCb = document.getElementById('select-all-cb');
+        if (!filterLeague) return;
+
+        function updateWLBadge(item, teamId) {
+            var wrap = item.querySelector('.wl-badge-wrap');
+            var badge = item.querySelector('.wl-badge');
+            if (!wrap || !badge) return;
+            if (!teamId) { wrap.classList.add('d-none'); return; }
+            var homeScore = parseInt(item.dataset.homeScore, 10);
+            var awayScore = parseInt(item.dataset.awayScore, 10);
+            if (homeScore === 0 && awayScore === 0) { wrap.classList.add('d-none'); return; }
+            var isHome = item.dataset.homeTeamId === teamId;
+            var isAway = item.dataset.awayTeamId === teamId;
+            if (!isHome && !isAway) { wrap.classList.add('d-none'); return; }
+            var teamScore = isHome ? homeScore : awayScore;
+            var oppScore = isHome ? awayScore : homeScore;
+            badge.classList.remove('bg-success', 'bg-danger', 'bg-secondary');
+            wrap.classList.remove('d-none');
+            if (teamScore > oppScore) { badge.textContent = 'W'; badge.classList.add('bg-success'); }
+            else if (teamScore < oppScore) { badge.textContent = 'L'; badge.classList.add('bg-danger'); }
+            else { badge.textContent = 'D'; badge.classList.add('bg-secondary'); }
+        }
+
+        function applyFilters() {
+            const leagueId = filterLeague.value;
+            const teamId = filterTeam.value;
+            let visibleTotal = 0;
+
+            document.querySelectorAll('.week-section').forEach(function (section) {
+                let visibleInWeek = 0;
+                section.querySelectorAll('.fixture-item').forEach(function (item) {
+                    const matchesLeague = !leagueId || item.dataset.leagueId === leagueId;
+                    const matchesTeam = !teamId ||
+                        item.dataset.homeTeamId === teamId ||
+                        item.dataset.awayTeamId === teamId;
+                    const visible = matchesLeague && matchesTeam;
+                    item.classList.toggle('fixture-hidden', !visible);
+                    if (visible) { visibleInWeek++; visibleTotal++; }
+                    updateWLBadge(item, teamId);
+                });
+                section.style.display = visibleInWeek > 0 ? '' : 'none';
+            });
+
+            filterSummary.textContent = `${visibleTotal} fixture${visibleTotal !== 1 ? 's' : ''}`;
+            if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        filterLeague.addEventListener('change', applyFilters);
+        filterTeam.addEventListener('change', applyFilters);
+    }());
+
+    // Bulk selection state (only present when logged in)
     const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
     const bulkAssignBtn = document.getElementById('bulk-assign-btn');
-    const countSpan = document.getElementById('selected-count');
+    const selectedCountSpan = document.getElementById('selected-count');
     const modalCount = document.getElementById('modal-count');
+    const selectAllCb = document.getElementById('select-all-cb');
+
+    if (!bulkDeleteBtn) { return; } // not logged in — bulk wiring not needed
+
+    function visibleChecks() {
+        return Array.from(document.querySelectorAll('.fixture-check')).filter(function (cb) {
+            return !cb.closest('.fixture-item').classList.contains('fixture-hidden');
+        });
+    }
 
     function updateUI() {
         const n = document.querySelectorAll('.fixture-check:checked').length;
-        countSpan.textContent = n;
+        selectedCountSpan.textContent = n;
         modalCount.textContent = n;
         document.querySelectorAll('.selected-count-display').forEach(el => el.textContent = n);
         bulkDeleteBtn.classList.toggle('d-none', n === 0);
         bulkAssignBtn.classList.toggle('d-none', n === 0);
-        selectAll.indeterminate = n > 0 && n < checkboxes.length;
-        selectAll.checked = n === checkboxes.length && n > 0;
+
+        const vis = visibleChecks();
+        const nChecked = vis.filter(cb => cb.checked).length;
+        selectAllCb.checked = nChecked > 0 && nChecked === vis.length;
+        selectAllCb.indeterminate = nChecked > 0 && nChecked < vis.length;
     }
 
-    selectAll.addEventListener('change', function () {
-        checkboxes.forEach(cb => cb.checked = this.checked);
+    selectAllCb.addEventListener('change', function () {
+        visibleChecks().forEach(function (cb) {
+            cb.checked = selectAllCb.checked;
+            cb.closest('.fixture-item').classList.toggle('squad-selected', cb.checked);
+        });
         updateUI();
     });
 
-    checkboxes.forEach(cb => cb.addEventListener('change', updateUI));
+    document.querySelectorAll('.fixture-check').forEach(cb => cb.addEventListener('change', updateUI));
 
     document.getElementById('confirm-bulk-delete').addEventListener('click', function () {
         document.getElementById('bulk-delete-form').submit();
     });
 
-    // Copy checked fixture IDs into the assign form before submitting
+    // Copy selected IDs into bulk assign form before modal opens
     document.getElementById('bulkAssignModal').addEventListener('show.bs.modal', function () {
         const form = document.getElementById('bulk-assign-form');
         form.querySelectorAll('input[name="fixture_ids"]').forEach(el => el.remove());
@@ -211,8 +432,10 @@ document.querySelectorAll('.fixture-row').forEach(function (row) {
             form.appendChild(hidden);
         });
     });
+
 }());
 </script>
+</div><!-- /pt-4 -->
 
 {% else %}
 <div class="card">
@@ -220,9 +443,11 @@ document.querySelectorAll('.fixture-row').forEach(function (row) {
         <i class="bi bi-journal-text" style="font-size: 3rem; color: #ccc;"></i>
         <h5 class="mt-3 text-muted">No fixtures yet</h5>
         <p class="text-muted">Enter your first fixture manually to get started!</p>
+        {% if is_admin %}
         <a href="{{ url_for('manual_fixture_entry') }}" class="btn btn-outline-light">
             <i class="bi bi-pencil me-2"></i>Manual Entry
         </a>
+        {% endif %}
     </div>
 </div>
 {% endif %}

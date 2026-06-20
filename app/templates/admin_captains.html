@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Admin — Captain Logins{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-person-badge me-2"></i>Captain Logins</h2>
+    <a href="{{ url_for('admin_users') }}" class="btn btn-sm btn-outline-light">
+        <i class="bi bi-shield-lock me-1"></i>Admin Users
+    </a>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    Captain logins give restricted access — captains can manage squad, scores, and match fees for
+    their own team's fixtures, but cannot edit players, leagues, or other admin-only data.
+    Any Firebase user <strong>not</strong> listed here is treated as an admin.
+</div>
+
+<div class="row g-4">
+    <!-- Captain list -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-people me-2"></i>Current captain logins
+                <span class="badge bg-light text-dark ms-2">{{ captains|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if captains %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Email</th>
+                                <th>Player</th>
+                                <th class="d-none d-lg-table-cell text-muted">Captains</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in captains %}
+                            <tr>
+                                <td>{{ c.email }}</td>
+                                <td>
+                                    {% if c.player %}
+                                    <a href="{{ url_for('player_detail', player_id=c.player.id) }}">
+                                        {{ c.player.name }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="d-none d-lg-table-cell text-muted small">
+                                    {% if c.player %}
+                                        {% set caps = c.player.captaincies %}
+                                        {% if caps %}
+                                            {{ caps | map(attribute='team') | map(attribute='name') | join(', ') }}
+                                        {% else %}
+                                            <span class="text-warning">No team captaincies</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-danger">No player linked</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#deleteCaptainModal{{ loop.index }}"
+                                            title="Remove this captain login">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-muted">No captain logins configured.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Add form -->
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-person-plus me-2"></i>Add captain login</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('admin_add_captain') }}">
+                    <div class="mb-3">
+                        <label for="captain_email" class="form-label">Email address</label>
+                        <input type="email" class="form-control" id="captain_email" name="email"
+                               required placeholder="name@example.com">
+                        <div class="form-text">Must match their Firebase account email.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="captain_uid" class="form-label">Firebase UID</label>
+                        <input type="text" class="form-control" id="captain_uid" name="uid"
+                               required placeholder="e.g. abc123xyz">
+                        <div class="form-text">
+                            Find this on the
+                            <a href="{{ url_for('admin_users') }}">Admin Users</a> page (UID column).
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="captain_player" class="form-label">Linked player</label>
+                        <select class="form-select" id="captain_player" name="player_id">
+                            <option value="">— no player linked —</option>
+                            {% for p in players %}
+                            <option value="{{ p.id }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            The player must have a captain role set on at least one team.
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-tennis w-100">
+                        <i class="bi bi-person-plus me-1"></i>Add captain login
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation modals -->
+{% for c in captains %}
+<div class="modal fade" id="deleteCaptainModal{{ loop.index }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('admin_delete_captain', uid=c.uid) }}">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title text-white">Remove captain login</h5>
+                    <button type="button" class="btn-close btn-close-white"
+                            data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">Remove captain login for <strong>{{ c.email }}</strong>?
+                    They will be treated as an admin on next sign-in.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Remove</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

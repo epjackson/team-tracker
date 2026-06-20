@@ -2,6 +2,7 @@
 {% block title %}{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }} vs {{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }} — Team Tracker{% endblock %}
 
 {% block content %}
+{% set can_edit = is_admin or fixture.home_team_id in captain_team_ids or fixture.away_team_id in captain_team_ids %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <a href="{{ url_for('list_fixtures') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>All Fixtures</a>
@@ -13,16 +14,18 @@
             <i class="bi bi-trophy me-1"></i>{{ fixture.league.name }}
         </a>
         {% endif %}
+        {% set _division = (fixture.home_team.division if fixture.home_team and fixture.home_team.division else none) or (fixture.away_team.division if fixture.away_team and fixture.away_team.division else none) %}
+        {% if _division %}
+        <span class="badge bg-primary ms-1 mt-1"><i class="bi bi-diagram-3 me-1"></i>{{ _division.name }}</span>
+        {% endif %}
         {% set _eff_league = fixture.league or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none) or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
-        {% set display_round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none) %}
+        {% set display_round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none, _eff_league.round5_start_date if _eff_league else none, _eff_league.round9_start_date if _eff_league else none) %}
         {% if display_round %}
         <span class="badge bg-secondary ms-1 mt-1">{{ display_round }}</span>
         {% endif %}
     </div>
+    {% if is_admin %}
     <div class="d-flex flex-column align-items-end gap-2">
-        <div class="text-white-50">
-            <i class="bi bi-calendar me-1"></i>{{ fixture.date.strftime('%d %b %Y') }}
-        </div>
         <div class="d-flex gap-2">
             <button class="btn btn-sm btn-outline-light" data-bs-toggle="modal" data-bs-target="#editFixtureModal">
                 <i class="bi bi-pencil me-1"></i>Edit
@@ -32,8 +35,10 @@
             </button>
         </div>
     </div>
+    {% endif %}
 </div>
 
+{% if is_admin %}
 <!-- Edit Fixture Modal -->
 <div class="modal fade" id="editFixtureModal" tabindex="-1">
     <div class="modal-dialog">
@@ -47,6 +52,26 @@
                     <div class="mb-3">
                         <label for="fixture_date" class="form-label">Date</label>
                         <input type="date" class="form-control" id="fixture_date" name="fixture_date" required value="{{ fixture.date.strftime('%Y-%m-%d') }}">
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col">
+                            <label for="edit_home_team" class="form-label">Home Team</label>
+                            <select class="form-select" id="edit_home_team" name="home_team_id">
+                                <option value="">— unlinked —</option>
+                                {% for team in all_teams %}
+                                <option value="{{ team.id }}" {% if fixture.home_team_id == team.id %}selected{% endif %}>{{ team.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label for="edit_away_team" class="form-label">Away Team</label>
+                            <select class="form-select" id="edit_away_team" name="away_team_id">
+                                <option value="">— unlinked —</option>
+                                {% for team in all_teams %}
+                                <option value="{{ team.id }}" {% if fixture.away_team_id == team.id %}selected{% endif %}>{{ team.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="fixture_league" class="form-label">League (optional)</label>
@@ -125,8 +150,36 @@
     </div>
 </div>
 
+
+<!-- Clear Results Modal -->
+<div class="modal fade" id="clearResultsModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-x-circle me-2"></i>Clear Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">Reset all scores to unplayed?</p>
+                <p class="text-muted small mb-0">Player selections will also be cleared.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning btn-sm text-dark" id="clearConfirmBtn">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}{# is_admin — edit/delete/clear modals #}
+
 <!-- Score summary -->
 <div class="card mb-4">
+    <div class="card-header text-center py-2">
+        <i class="bi bi-calendar3 me-1"></i>
+        <strong>{{ fixture.date.strftime('%A, %d %B %Y') }}</strong>
+    </div>
     <div class="card-body text-center py-4">
         <div class="row align-items-center">
             <div class="col-md-5 text-end">
@@ -134,18 +187,36 @@
                 <small class="text-muted">Home</small>
             </div>
             <div class="col-md-2 text-center">
+                {% if fixture.home_score == 0 and fixture.away_score == 0 %}
+                <div class="d-flex justify-content-center align-items-center gap-3">
+                    <span class="score-badge score-home" style="font-size: 2rem; padding: 0.5rem 1.5rem;">
+                        <i class="bi bi-stopwatch"></i>
+                    </span>
+                    <span class="text-muted fw-bold">-</span>
+                    <span class="score-badge score-away" style="font-size: 2rem; padding: 0.5rem 1.5rem;">
+                        <i class="bi bi-stopwatch"></i>
+                    </span>
+                </div>
+                {% else %}
                 <div class="d-flex justify-content-center align-items-center gap-3">
                     <span class="score-badge score-home" style="font-size: 2rem; padding: 0.5rem 1.5rem;">{{ fixture.home_score }}</span>
                     <span class="text-muted fw-bold">-</span>
                     <span class="score-badge score-away" style="font-size: 2rem; padding: 0.5rem 1.5rem;">{{ fixture.away_score }}</span>
                 </div>
+                {% endif %}
             </div>
             <div class="col-md-5 text-start">
                 <h3 class="mb-0">{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or '—') }}</h3>
                 <small class="text-muted">Away</small>
             </div>
         </div>
-        {% if fixture.home_score > fixture.away_score %}
+        {% if fixture.home_score == 0 and fixture.away_score == 0 %}
+        <div class="mt-3">
+            <span class="badge bg-secondary" style="font-size: 1rem; padding: 0.4rem 1rem; letter-spacing: .05em;">
+                <i class="bi bi-calendar-event me-1"></i>SCHEDULED
+            </span>
+        </div>
+        {% elif fixture.home_score > fixture.away_score %}
         <div class="mt-3">
             <span class="winner-badge winner-home" style="font-size: 1rem; padding: 0.4rem 1rem;">
                 {{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or '—') }} Win
@@ -167,76 +238,665 @@
     </div>
 </div>
 
-<!-- Rubbers detail -->
+<!-- Team perspective switcher (both teams are registered) -->
+{% if both_yarm %}
+<div class="d-flex align-items-center gap-2 mb-4">
+    <span class="text-white-50 small me-1">Viewing as:</span>
+    <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.home_team_id) }}"
+       class="btn btn-sm {% if yarm_is_home %}btn-light{% else %}btn-outline-light{% endif %}">
+        {{ fixture.home_team.name }}
+    </a>
+    <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.away_team_id) }}"
+       class="btn btn-sm {% if not yarm_is_home %}btn-light{% else %}btn-outline-light{% endif %}">
+        {{ fixture.away_team.name }}
+    </a>
+</div>
+{% endif %}
+
+
+<!-- Squad selection -->
+{% if squad_pool %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-people me-2"></i>Squad
+            {% if both_yarm %}<span class="text-muted fw-normal">— {{ yarm_team.name }}</span>{% endif %}
+            <span class="badge bg-secondary ms-1" id="squad-count">{{ existing_squad_ids|length }}</span>
+            <span class="text-muted fw-normal small ms-1">/ {{ squad_size }} needed</span>
+        </div>
+        {% if fixture.league_id %}
+        <span class="badge bg-warning text-dark small">
+            <i class="bi bi-exclamation-triangle me-1"></i>One fixture per player per week
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('save_fixture_squad', fixture_id=fixture.id) }}">
+            {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+            <div class="row g-2 mb-3">
+                {% for entry in squad_pool %}
+                <div class="col-sm-6 col-md-4">
+                    <label class="squad-player-row d-flex align-items-center gap-2 p-2 rounded
+                        {% if not entry.selectable %}squad-ineligible{% endif %}
+                        {% if entry.in_squad %}squad-selected{% endif %}"
+                        for="squad_{{ entry.player.id }}"
+>
+                        <input class="form-check-input flex-shrink-0 squad-cb" type="checkbox"
+                               name="squad_player_ids" value="{{ entry.player.id }}"
+                               id="squad_{{ entry.player.id }}"
+                               {% if entry.in_squad %}checked{% endif %}
+                               {% if not can_edit or (not entry.selectable and not entry.in_squad) %}disabled{% endif %}
+                               {% if entry.would_commit %}
+                               data-would-commit="true"
+                               data-commit-team="{{ yarm_team.name if yarm_team else 'this team' }}"
+                               {% endif %}>
+                        <span class="flex-grow-1 small">{{ entry.player.name }}
+                            {% if entry.commitment_info %}
+                            <span class="badge bg-success ms-1" style="font-size:.65rem"
+                                  data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Tied to this team">
+                                <i class="bi bi-patch-check"></i>
+                            </span>
+                            {% elif entry.would_commit %}
+                            <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem"
+                                  data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Selecting this player will block them from playing for lower-division teams for the rest of the season.">
+                                <i class="bi bi-exclamation-triangle"></i>
+                            </span>
+                            {% endif %}
+                            {% if entry.reason %}
+                            <span class="badge bg-danger ms-1" style="font-size:.65rem"
+                                  data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="{{ entry.reason }}">
+                                <i class="bi bi-slash-circle"></i>
+                            </span>
+                            {% endif %}
+                        </span>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Select {{ squad_size }} players ·
+                    <i class="bi bi-patch-check text-success"></i> = tied to team ·
+                    <i class="bi bi-exclamation-triangle text-warning"></i> = commits this player ·
+                    <i class="bi bi-slash-circle text-danger"></i> = ineligible
+                </span>
+                {% if can_edit %}
+                <button id="save-squad-btn" type="submit" class="btn btn-tennis btn-sm" disabled>
+                    <i class="bi bi-check-circle me-1"></i>Save Squad
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Match Fees -->
+{% if can_edit and fee_players and (yarm_team is none or yarm_team.match_fees_enabled) %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-cash-coin me-2"></i>Match Fees
+            {% if both_yarm %}<span class="text-muted fw-normal">— {{ yarm_team.name }}</span>{% endif %}
+            <span class="badge bg-success ms-1">{{ fee_paid_ids|length }} paid</span>
+            {% if fee_players|length - fee_paid_ids|length > 0 %}
+            <span class="badge bg-secondary ms-1">{{ fee_players|length - fee_paid_ids|length }} outstanding</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('save_match_fees', fixture_id=fixture.id) }}">
+            {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+            <div class="row g-2 mb-3">
+                {% for player in fee_players %}
+                {% set paid = player.id in fee_paid_ids %}
+                <div class="col-sm-6 col-md-4">
+                    <label class="d-flex align-items-center gap-2 p-2 rounded border
+                        {% if paid %}border-success bg-success bg-opacity-10{% else %}border-secondary{% endif %}"
+                        style="cursor:pointer">
+                        <input class="form-check-input flex-shrink-0" type="checkbox"
+                               name="fee_paid_ids" value="{{ player.id }}"
+                               {% if paid %}checked{% endif %}>
+                        <span class="small flex-grow-1">{{ player.name }}</span>
+                        {% if paid %}
+                        <span class="badge bg-success flex-shrink-0"><i class="bi bi-check2"></i> Paid</span>
+                        {% endif %}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+            {% if can_edit %}
+            <div class="d-flex justify-content-end">
+                <button type="submit" class="btn btn-tennis btn-sm">
+                    <i class="bi bi-floppy me-1"></i>Save Fees
+                </button>
+            </div>
+            {% endif %}
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Other team squad info for dual-Yarm fixtures -->
+{% if both_yarm and other_team %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-people me-2"></i>Squad
+            <span class="text-muted fw-normal">— {{ other_team.name }}</span>
+            <span class="badge bg-secondary ms-1">{{ other_existing_squad_ids|length }}</span>
+            <span class="text-muted fw-normal small ms-1">/ {{ squad_size }} needed</span>
+        </div>
+    </div>
+    <div class="card-body py-2">
+        {% if other_squad_pool %}
+        <div class="row g-2 mb-2">
+            {% for entry in other_squad_pool %}
+            {% if entry.in_squad %}
+            <div class="col-sm-6 col-md-4">
+                <div class="d-flex align-items-center gap-2 p-2 rounded squad-player-row squad-selected">
+                    <i class="bi bi-person-check flex-shrink-0 text-success"></i>
+                    <span class="flex-grow-1 small">{{ entry.player.name }}</span>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="text-muted small">
+            <i class="bi bi-info-circle me-1"></i>
+            Manage {{ other_team.name }}'s squad from their
+            <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=other_team.id) }}"
+               class="text-info">team view</a>.
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Commitment warning modal -->
+<div class="modal fade" id="commitWarningModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Season Tie Warning</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Saving this squad will tie the following player(s) to <strong id="commit-team-name"></strong> for the rest of the season — they will no longer be eligible for lower divisions:</p>
+                <ul id="commit-player-list" class="mb-3"></ul>
+                <p class="mb-0 text-muted small">Do you want to continue?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning text-dark" id="commit-confirm-btn">
+                    <i class="bi bi-check-circle me-1"></i>Save Squad
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pairs entry -->
+{% set n_pairs = (fixture.league.pairs_per_round if (fixture.league and fixture.league.pairs_per_round) else rubbers|length // 3) %}
 <div class="card">
     <div class="card-header">
-        <i class="bi bi-list-ol me-2"></i>Rubbers ({{ rubbers|length }})
+        <i class="bi bi-list-ol me-2"></i>Pairs
+        {% if fixture.league and fixture.league.pairs_per_round %}
+        <span class="text-muted fw-normal small ms-1">({{ fixture.league.pairs_per_round }} per round — {{ fixture.league.name }})</span>
+        {% endif %}
     </div>
-    <div class="card-body p-0">
-        {% if rubbers %}
-        <table class="table table-hover mb-0 rubber-table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Type</th>
-                    <th>Home Player(s)</th>
-                    <th>Score</th>
-                    <th>Away Player(s)</th>
-                    <th>Winner</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for rubber in rubbers %}
-                <tr>
-                    <td class="fw-bold">{{ rubber.rubber_number }}</td>
-                    <td>
-                        <span class="badge {% if rubber.rubber_type == 'singles' %}bg-info{% else %}bg-warning{% endif %}">
-                            {{ rubber.rubber_type }}
-                        </span>
-                    </td>
-                    <td>
-                        {% for result in rubber.player_results.all() if result.side == 'home' %}
-                            {{ result.player.name }}{% if not loop.last %}, {% endif %}
+    <div class="card-body">
+        {% if n_pairs > 0 %}
+        {% set away_perspective = both_yarm and not yarm_is_home %}
+        <form id="rubber-form" method="POST" action="{{ url_for('save_rubbers', fixture_id=fixture.id) }}">
+            <input type="hidden" name="rubber_count" value="{{ n_pairs }}">
+            {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+            <div class="table-responsive">
+                <table class="table align-middle mb-3">
+                    <thead>
+                        <tr>
+                            <th style="width:2.5rem">#</th>
+                            <th colspan="2">{{ yarm_team.name if yarm_team else 'Yarm' }}</th>
+                            <th class="text-center">Opposition 1</th>
+                            <th class="text-center">Opposition 2</th>
+                            <th class="text-center">Opposition 3</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for i in range(n_pairs) %}
+                        {% set base_idx = i if away_perspective else (i * n_pairs) %}
+                        {% set base_rubber = rubbers[base_idx] if base_idx < rubbers|length else none %}
+                        {% set yarm_side = 'home' if yarm_is_home else 'away' %}
+                        {% set home_results = base_rubber.player_results.filter_by(side=yarm_side).all() if base_rubber else [] %}
+                        {% set p1_id = home_results[0].player_id if home_results|length > 0 else none %}
+                        {% set p2_id = home_results[1].player_id if home_results|length > 1 else none %}
+                        {% set committed = (p1_id is not none) and (p2_id is not none) %}
+                        <tr data-committed="{{ 'true' if committed else 'false' }}">
+                            <td class="fw-bold text-muted">{{ i + 1 }}</td>
+                            <td>
+                                <select class="form-select form-select-sm player-select" name="rubber_{{ i }}_home_player_1"
+                                        {% if not can_edit %}disabled{% endif %}>
+                                    <option value="">— No player —</option>
+                                    {% for p in eligible_players %}
+                                    <option value="{{ p.id }}" {% if p1_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm player-select" name="rubber_{{ i }}_home_player_2"
+                                        {% if not can_edit %}disabled{% endif %}>
+                                    <option value="">— No player —</option>
+                                    {% for p in eligible_players %}
+                                    <option value="{{ p.id }}" {% if p2_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            {% for n in [1, 2, 3] %}
+                            {% if away_perspective %}
+                            {% set rubber_idx = (n - 1) * n_pairs + i %}
+                            {% else %}
+                            {% set rubber_idx = base_idx + n - 1 %}
+                            {% endif %}
+                            {% set rubber_n = rubbers[rubber_idx] if rubber_idx < rubbers|length else none %}
+                            {% set tie_val = rubber_n.set1_tie if rubber_n else false %}
+                            {% set walkover_val = rubber_n.set1_walkover if rubber_n else none %}
+                            {% set is_yarm_walkover = walkover_val and ((walkover_val == 'home' and yarm_is_home) or (walkover_val == 'away' and not yarm_is_home)) %}
+                            {% if yarm_is_home %}
+                                {% set yarm_val = rubber_n.home_set1 if rubber_n else none %}
+                                {% set opp_val  = rubber_n.away_set1 if rubber_n else none %}
+                            {% else %}
+                                {% set yarm_val = rubber_n.away_set1 if rubber_n else none %}
+                                {% set opp_val  = rubber_n.home_set1 if rubber_n else none %}
+                            {% endif %}
+                            <td class="text-center rubber-cell {% if tie_val %}is-tie{% elif walkover_val %}is-walkover {% if is_yarm_walkover %}is-walkover-yarm{% else %}is-walkover-opp{% endif %}{% endif %}">
+                                <input type="checkbox" class="visually-hidden tie-cb"
+                                       name="rubber_{{ i }}_set{{ n }}_tie"
+                                       {% if tie_val %}checked{% endif %}
+                                       {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>
+                                <input type="hidden" class="walkover-hidden"
+                                       name="rubber_{{ i }}_set{{ n }}_walkover"
+                                       value="{{ walkover_val or '' }}"
+                                       {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>
+                                <div class="score-wrap d-flex align-items-center gap-1 justify-content-center"
+                                     {% if tie_val or walkover_val %}style="display:none!important;"{% endif %}>
+                                    <input type="number" class="form-control form-control-sm text-center score-box"
+                                           name="rubber_{{ i }}_home_set{{ n }}"
+                                           value="{{ yarm_val if yarm_val is not none else '' }}"
+                                           min="0" max="9"
+                                           {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>
+                                    <div class="d-flex flex-column align-items-center" style="gap:3px">
+                                        <button type="button" class="tie-sep" title="Mark as tied" onclick="toggleTie(this)"
+                                                {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>T</button>
+                                        <button type="button" class="walkover-btn" title="Walkover — click to select winner" onclick="toggleWalkover(this)"
+                                                {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>W</button>
+                                    </div>
+                                    <input type="number" class="form-control form-control-sm text-center score-box"
+                                           name="rubber_{{ i }}_away_set{{ n }}"
+                                           value="{{ opp_val if opp_val is not none else '' }}"
+                                           min="0" max="9"
+                                           {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>
+                                </div>
+                                <div class="tie-display" {% if not tie_val %}style="display:none"{% endif %}>
+                                    <button type="button" class="winner-badge winner-tie tie-sep" title="Click to clear tie" onclick="toggleTie(this)"
+                                            {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>T</button>
+                                </div>
+                                <div class="walkover-display" {% if not walkover_val %}style="display:none"{% endif %}>
+                                    <button type="button" class="winner-badge {% if is_yarm_walkover %}winner-home{% else %}winner-away{% endif %} walkover-sep"
+                                            title="{% if is_yarm_walkover %}Walkover — Yarm wins. Click to switch to Opposition walkover.{% else %}Walkover — Opposition wins. Click to clear.{% endif %}"
+                                            onclick="toggleWalkover(this)"
+                                            {% if not committed or away_perspective or not can_edit %}disabled{% endif %}>W</button>
+                                </div>
+                            </td>
+                            {% endfor %}
+                        </tr>
                         {% endfor %}
-                    </td>
-                    <td>
-                        {% if rubber.home_set1 is not none %}
-                            <span class="badge bg-light text-dark me-1">{{ rubber.home_set1 }}-{{ rubber.away_set1 }}</span>
-                        {% endif %}
-                        {% if rubber.home_set2 is not none %}
-                            <span class="badge bg-light text-dark me-1">{{ rubber.home_set2 }}-{{ rubber.away_set2 }}</span>
-                        {% endif %}
-                        {% if rubber.home_set3 is not none %}
-                            <span class="badge bg-light text-dark">{{ rubber.home_set3 }}-{{ rubber.away_set3 }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% for result in rubber.player_results.all() if result.side == 'away' %}
-                            {{ result.player.name }}{% if not loop.last %}, {% endif %}
-                        {% endfor %}
-                    </td>
-                    <td>
-                        {% if rubber.winner == 'home' %}
-                            <span class="winner-badge winner-home">Home</span>
-                        {% elif rubber.winner == 'away' %}
-                            <span class="winner-badge winner-away">Away</span>
-                        {% elif rubber.winner == 'tie' %}
-                            <span class="winner-badge winner-tie">Tie</span>
-                        {% else %}
-                            <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                    </tbody>
+                </table>
+            </div>
+            {% if away_perspective %}
+            <div class="alert alert-secondary py-2 px-3 mb-3 small">
+                <i class="bi bi-lock me-1"></i>Scores are entered from the
+                <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.home_team_id) }}" class="alert-link">home team view</a>.
+            </div>
+            {% else %}
+            <div class="text-muted small mb-3">
+                <i class="bi bi-info-circle me-1"></i>Scoring: 2 pts per rubber win · 1 pt each for a tied rubber · 4 bonus pts to the team winning more rubbers
+            </div>
+            {% endif %}
+            {% if can_edit %}
+            <div class="d-flex justify-content-between align-items-center">
+                {% if not away_perspective %}
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearScores()">
+                    <i class="bi bi-x-circle me-1"></i>Clear
+                </button>
+                {% else %}
+                <span></span>
+                {% endif %}
+                <span id="save-btn-wrapper" class="d-inline-block" tabindex="0">
+                    <button id="save-results-btn" type="submit" class="btn btn-tennis" disabled>
+                        <i class="bi bi-check-circle me-1"></i>{% if away_perspective %}Save Players{% else %}Save Results{% endif %}
+                    </button>
+                </span>
+            </div>
+            {% endif %}
+        </form>
+        {% if is_admin %}<form id="clear-results-form" method="POST" action="{{ url_for('clear_fixture_results', fixture_id=fixture.id) }}" style="display:none">
+            {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+        </form>{% endif %}{# is_admin — clear-results form #}
         {% else %}
         <div class="text-center py-4 text-muted">
-            <p>No rubbers recorded for this fixture.</p>
+            <i class="bi bi-exclamation-circle mb-2" style="font-size:1.5rem"></i>
+            {% if not fixture.home_team %}
+            <p class="mb-0">No home team linked. Use <strong>Edit</strong> to assign this fixture to a registered team, then players will appear here.</p>
+            {% else %}
+            <p class="mb-0">No pairs configured. Assign this fixture to a league with <strong>Doubles Pairs per Round</strong> set.</p>
+            {% endif %}
         </div>
         {% endif %}
     </div>
 </div>
+
+{% block extra_css %}
+<style>
+.squad-player-row {
+    background: rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+    border: 1px solid transparent;
+}
+.squad-player-row:hover:not(.squad-ineligible) { background: rgba(255,255,255,0.09); }
+.squad-ineligible { opacity: 0.45; cursor: not-allowed; }
+.squad-selected { background: rgba(25,135,84,0.18) !important; border-color: rgba(25,135,84,0.35) !important; }
+.rubber-cell { min-width: 9rem; }
+#save-results-btn:disabled { pointer-events: none; }
+.tie-sep {
+    background: none;
+    border: none;
+    color: #6c757d;
+    font-size: 1.25rem;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: color 0.15s, transform 0.15s;
+}
+.tie-sep:hover { color: #856404; transform: scale(1.4); }
+.rubber-cell.is-tie { background-color: rgba(255, 243, 205, 0.12); }
+.tie-display .tie-sep { font-size: 0.8rem; }
+.walkover-btn {
+    background: none;
+    border: none;
+    color: #6c757d;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: color 0.15s, transform 0.15s;
+}
+.walkover-btn:hover { color: #0d6efd; transform: scale(1.4); }
+.rubber-cell.is-walkover { background-color: rgba(13, 110, 253, 0.08); }
+.walkover-display .walkover-sep { font-size: 0.8rem; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var _yarmIsHome = {{ yarm_is_home | tojson }};   // VSCode Jinja extension false positive error
+var _canEdit = {% if is_admin or fixture.home_team_id in captain_team_ids or fixture.away_team_id in captain_team_ids %}true{% else %}false{% endif %};
+
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+    new bootstrap.Tooltip(el);
+});
+
+(function () {
+    var countEl = document.getElementById('squad-count');
+    var squadSaveBtn = document.getElementById('save-squad-btn');
+
+    function updateCount() {
+        if (!countEl) return;
+        countEl.textContent = document.querySelectorAll('.squad-cb:checked').length;
+    }
+    document.querySelectorAll('.squad-cb').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            this.closest('.squad-player-row').classList.toggle('squad-selected', this.checked);
+            updateCount();
+            if (squadSaveBtn) squadSaveBtn.disabled = false;
+        });
+    });
+    updateCount();
+
+    var squadForm = document.querySelector('form[action*="squad"]');
+    var commitModalEl = document.getElementById('commitWarningModal');
+    var commitModal = commitModalEl && window.bootstrap ? new bootstrap.Modal(commitModalEl) : null;
+    var pendingSubmit = false;
+
+    if (commitModal) {
+        document.getElementById('commit-confirm-btn').addEventListener('click', function () {
+            pendingSubmit = true;
+            if (squadSaveBtn) squadSaveBtn.disabled = true;
+            commitModal.hide();
+            squadForm.submit();
+        });
+    }
+
+    if (squadForm) {
+        squadForm.addEventListener('submit', function (e) {
+            if (pendingSubmit) return;
+            var flagged = Array.from(squadForm.querySelectorAll('.squad-cb[data-would-commit]:checked'));
+            if (!flagged.length) {
+                if (squadSaveBtn) squadSaveBtn.disabled = true;
+                return;
+            }
+            e.preventDefault();
+            if (commitModal) {
+                document.getElementById('commit-team-name').textContent = flagged[0].dataset.commitTeam;
+                var list = document.getElementById('commit-player-list');
+                list.innerHTML = '';
+                flagged.forEach(function (cb) {
+                    var li = document.createElement('li');
+                    li.textContent = cb.closest('label').querySelector('.flex-grow-1').textContent.trim();
+                    list.appendChild(li);
+                });
+                commitModal.show();
+            }
+        });
+    }
+}());
+
+function _setWalkoverState(cell, state) {
+    var scoreWrap = cell.querySelector('.score-wrap');
+    var tieDisplay = cell.querySelector('.tie-display');
+    var walkoverDisplay = cell.querySelector('.walkover-display');
+    var wBadge = walkoverDisplay ? walkoverDisplay.querySelector('.walkover-sep') : null;
+    var walkoverHidden = cell.querySelector('.walkover-hidden');
+    var tieCb = cell.querySelector('.tie-cb');
+    var sbs = cell.querySelectorAll('.score-box');
+    cell.classList.remove('is-tie', 'is-walkover', 'is-walkover-yarm', 'is-walkover-opp');
+    if (tieCb) tieCb.checked = false;
+    if (tieDisplay) tieDisplay.style.display = 'none';
+    if (state === null) {
+        if (sbs.length >= 2) { sbs[0].value = ''; sbs[1].value = ''; }
+        if (scoreWrap) scoreWrap.style.removeProperty('display');
+        if (walkoverDisplay) walkoverDisplay.style.display = 'none';
+        if (walkoverHidden) walkoverHidden.value = '';
+    } else if (state === 'yarm') {
+        cell.classList.add('is-walkover', 'is-walkover-yarm');
+        if (sbs.length >= 2) { sbs[0].value = '8'; sbs[1].value = '0'; }
+        if (scoreWrap) scoreWrap.style.setProperty('display', 'none', 'important');
+        if (walkoverDisplay) walkoverDisplay.style.display = '';
+        if (wBadge) { wBadge.className = 'winner-badge winner-home walkover-sep'; wBadge.setAttribute('title', 'Walkover — Yarm wins. Click to switch to Opposition walkover.'); }
+        if (walkoverHidden) walkoverHidden.value = _yarmIsHome ? 'home' : 'away';
+    } else if (state === 'opp') {
+        cell.classList.add('is-walkover', 'is-walkover-opp');
+        if (sbs.length >= 2) { sbs[0].value = '0'; sbs[1].value = '8'; }
+        if (scoreWrap) scoreWrap.style.setProperty('display', 'none', 'important');
+        if (walkoverDisplay) walkoverDisplay.style.display = '';
+        if (wBadge) { wBadge.className = 'winner-badge winner-away walkover-sep'; wBadge.setAttribute('title', 'Walkover — Opposition wins. Click to clear.'); }
+        if (walkoverHidden) walkoverHidden.value = _yarmIsHome ? 'away' : 'home';
+    }
+}
+
+var _clearModal = (function () {
+    var el = document.getElementById('clearResultsModal');
+    if (!el || !window.bootstrap) return null;
+    var m = new bootstrap.Modal(el);
+    document.getElementById('clearConfirmBtn').addEventListener('click', function () {
+        m.hide();
+        document.getElementById('clear-results-form').submit();
+    });
+    return m;
+}());
+
+function clearScores() {
+    if (_clearModal) { _clearModal.show(); } else { document.getElementById('clear-results-form').submit(); }
+}
+
+function toggleTie(btn) {
+    var cell = btn.closest('td');
+    if (cell.classList.contains('is-walkover')) {
+        cell.classList.remove('is-walkover', 'is-walkover-yarm', 'is-walkover-opp');
+        cell.querySelector('.walkover-display').style.display = 'none';
+        var sbs = cell.querySelectorAll('.score-box');
+        sbs[0].value = ''; sbs[1].value = '';
+        cell.querySelector('.score-wrap').style.removeProperty('display');
+    }
+    var isTie = !cell.classList.contains('is-tie');
+    cell.classList.toggle('is-tie', isTie);
+    var wrap = cell.querySelector('.score-wrap');
+    if (isTie) {
+        wrap.style.setProperty('display', 'none', 'important');
+    } else {
+        wrap.style.removeProperty('display');
+    }
+    cell.querySelector('.tie-display').style.display = isTie ? '' : 'none';
+    cell.querySelector('.tie-cb').checked = isTie;
+    _resultsDirty = true;
+    updateSaveBtn();
+}
+
+function toggleWalkover(btn) {
+    var cell = btn.closest('td');
+    if (cell.classList.contains('is-tie')) {
+        cell.classList.remove('is-tie');
+        cell.querySelector('.tie-cb').checked = false;
+        cell.querySelector('.tie-display').style.display = 'none';
+        cell.querySelector('.score-wrap').style.removeProperty('display');
+    }
+    if (cell.classList.contains('is-walkover-yarm')) {
+        _setWalkoverState(cell, 'opp');
+    } else if (cell.classList.contains('is-walkover-opp')) {
+        _setWalkoverState(cell, null);
+    } else {
+        _setWalkoverState(cell, 'yarm');
+    }
+    _resultsDirty = true;
+    updateSaveBtn();
+}
+
+var _resultsDirty = false;
+
+var _saveTip = (function () {
+    var w = document.getElementById('save-btn-wrapper');
+    if (!w || !window.bootstrap) return null;
+    var t = new bootstrap.Tooltip(w, {
+        title: 'Enter a score (or mark as tied/walkover) for every rubber.',
+        trigger: 'hover focus',
+        placement: 'top',
+    });
+    t.disable();
+    return t;
+}());
+
+function updateSaveBtn() {
+    var btn = document.getElementById('save-results-btn');
+    if (!btn) return;
+    if (!_resultsDirty) {
+        btn.disabled = true;
+        if (_saveTip) _saveTip.disable();
+        return;
+    }
+    var form = document.getElementById('rubber-form');
+    if (!form) { btn.disabled = false; return; }
+    var ok = true;
+    form.querySelectorAll('td.rubber-cell').forEach(function (cell) {
+        if (cell.classList.contains('is-tie') || cell.classList.contains('is-walkover')) return;
+        var row = cell.closest('tr');
+        if (row && row.dataset.committed !== 'true') return;
+        cell.querySelectorAll('.score-box').forEach(function (b) {
+            if (b.value === '') ok = false;
+        });
+    });
+    btn.disabled = !ok;
+    if (_saveTip) { if (ok) _saveTip.disable(); else _saveTip.enable(); }
+}
+
+if (_canEdit) {
+    (function () {
+        var form = document.getElementById('rubber-form');
+        if (form) {
+            form.addEventListener('input', function () { _resultsDirty = true; updateSaveBtn(); });
+            form.addEventListener('change', function () { _resultsDirty = true; updateSaveBtn(); });
+            form.addEventListener('submit', function () {
+                form.querySelectorAll('tbody tr').forEach(function (row) {
+                    var hasEmpty = Array.from(row.querySelectorAll('.player-select')).some(function (s) { return !s.value; });
+                    if (hasEmpty) {
+                        row.querySelectorAll('.tie-cb, .walkover-hidden').forEach(function (el) { el.disabled = false; });
+                        row.querySelectorAll('td.rubber-cell').forEach(function (cell) {
+                            if (!cell.classList.contains('is-walkover')) _setWalkoverState(cell, 'opp');
+                        });
+                    }
+                });
+                _resultsDirty = false;
+                updateSaveBtn();
+            });
+        }
+        updateSaveBtn();
+    }());
+
+    function syncPlayerSelects() {
+        var selects = Array.from(document.querySelectorAll('.player-select'));
+        selects.forEach(function (target) {
+            var othersSelected = new Set(
+                selects.filter(function (s) { return s !== target && s.value; })
+                       .map(function (s) { return s.value; })
+            );
+            Array.from(target.options).forEach(function (opt) {
+                if (!opt.value) return;
+                opt.disabled = othersSelected.has(opt.value);
+            });
+        });
+    }
+    function _setRowLock(row, locked) {
+        row.dataset.committed = locked ? 'false' : 'true';
+        row.querySelectorAll('.score-box, .tie-sep, .walkover-btn, .walkover-sep, .tie-cb, .walkover-hidden').forEach(function (el) {
+            el.disabled = locked;
+        });
+    }
+
+    document.querySelectorAll('.player-select').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+            var row = this.closest('tr');
+            if (row) {
+                var selects = Array.from(row.querySelectorAll('.player-select'));
+                var bothSelected = selects.length >= 2 && selects.every(function (s) { return !!s.value; });
+                _setRowLock(row, !bothSelected);
+            }
+            syncPlayerSelects();
+        });
+    });
+    syncPlayerSelects();
+
+    (function () {
+        document.querySelectorAll('#rubber-form tbody tr').forEach(function (row) {
+            _setRowLock(row, row.dataset.committed !== 'true');
+        });
+    }());
+}
+
+
+</script>
+{% endblock %}
 
 {% if fixture.source_image %}
 <div class="card mt-4">
