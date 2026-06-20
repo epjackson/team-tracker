@@ -4,11 +4,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="text-white mb-0"><i class="bi bi-trophy me-2"></i>Leagues</h2>
+    {% if is_admin %}
     <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addLeagueModal">
         <i class="bi bi-plus-circle me-1"></i>Add League
     </button>
+    {% endif %}
 </div>
 
+{% if is_admin %}
 <!-- Add League Modal -->
 <div class="modal fade" id="addLeagueModal" tabindex="-1">
     <div class="modal-dialog">
@@ -23,9 +26,9 @@
                         <label for="name" class="form-label">League Name</label>
                         <select class="form-select" id="name" name="name" required>
                             <option value="" disabled selected>Select a league…</option>
-                            <option value="Cleveland Men's Summer League 2026">Cleveland Men's Summer League 2026</option>
-                            <option value="Cleveland Women's Summer League 2026">Cleveland Women's Summer League 2026</option>
-                            <option value="Cleveland Mixed Summer League 2026">Cleveland Mixed Summer League 2026</option>
+                            <option value="Cleveland Men's Doubles Summer League 2026">Cleveland Men's Doubles Summer League 2026 (2 men per pair)</option>
+                            <option value="Cleveland Women's Doubles Summer League 2026">Cleveland Women's Doubles Summer League 2026 (2 women per pair)</option>
+                            <option value="Cleveland Mixed Doubles Summer League 2026">Cleveland Mixed Doubles Summer League 2026 (1 man + 1 woman per pair)</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -48,14 +51,34 @@
                         <div class="form-text">Divisions will be created as Division 1, Division 2, etc.</div>
                     </div>
                     <div class="mb-3">
+                        <label for="start_date" class="form-label">Season Start Date (Saturday of Round 1)</label>
+                        <input type="date" class="form-control" id="start_date" name="start_date">
+                        <div class="form-text">The Saturday that marks the beginning of Round 1.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="round5_start_date" class="form-label">Round 5 Start Date (Saturday)</label>
+                        <input type="date" class="form-control" id="round5_start_date" name="round5_start_date">
+                        <div class="form-text">The Saturday Round 5 begins. Gap between Rounds 4 and 5 used for catch-up.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="round9_start_date" class="form-label">Round 9 Start Date (Saturday)</label>
+                        <input type="date" class="form-control" id="round9_start_date" name="round9_start_date">
+                        <div class="form-text">The Saturday Round 9 begins. Gap between Rounds 8 and 9 used for catch-up.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="pairs_per_round" class="form-label">Doubles Pairs per Round</label>
+                        <input type="number" class="form-control" id="pairs_per_round" name="pairs_per_round" min="1" required placeholder="e.g. 3">
+                        <div class="form-text">The number of doubles pairs played per round in each fixture (e.g. 3 means 3 pairs play).</div>
+                    </div>
+                    <div class="mb-3">
                         <label for="early_season_weeks" class="form-label">Early Season Single-Match Weeks</label>
                         <input type="number" class="form-control" id="early_season_weeks" name="early_season_weeks" min="0" placeholder="Leave empty or 0 for no restriction">
                         <div class="form-text">Number of weeks at the start of the season where a player may only play one match per week across the league. Set to 0 or leave empty to disable.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="team_commitment_threshold" class="form-label">Team Commitment Threshold</label>
+                        <label for="team_commitment_threshold" class="form-label">Team Tie Threshold</label>
                         <input type="number" class="form-control" id="team_commitment_threshold" name="team_commitment_threshold" min="0" placeholder="Leave empty or 0 for no restriction">
-                        <div class="form-text">Number of matches a player must play for a team before they are tied to that team for the season. Set to 0 or leave empty to disable.</div>
+                        <div class="form-text">After this many matches for a team, the player may not play for another team in the same or a lower division. They may still move up to a higher-ranked division. Set to 0 or leave empty to disable.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -66,6 +89,7 @@
         </div>
     </div>
 </div>
+{% endif %}{# logged_in — Add League Modal #}
 
 {% if leagues %}
 <div class="row g-4">
@@ -84,7 +108,7 @@
                 <div class="mb-3 d-flex flex-wrap gap-1">
                     {% if restriction and restriction.team_commitment_threshold > 0 %}
                     <span class="badge bg-warning text-dark">
-                        <i class="bi bi-link-45deg me-1"></i>Committed after {{ restriction.team_commitment_threshold }} fixtures
+                        <i class="bi bi-link-45deg me-1"></i>Division-locked after {{ restriction.team_commitment_threshold }} fixtures
                     </span>
                     {% endif %}
                     {% if restriction and restriction.early_season_weeks > 0 %}
@@ -98,29 +122,63 @@
                     </span>
                     {% endif %}
                 </div>
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="mb-3 d-flex gap-3">
                     <div>
                         <div class="text-muted small">Divisions</div>
                         <div class="fw-bold">{{ (league.divisions|list)|length }}</div>
                     </div>
+                    {% if league.pairs_per_round %}
                     <div>
-                        <div class="text-muted small">Fixtures</div>
-                        <div class="fw-bold">{{ (league.fixtures|list)|length }}</div>
+                        <div class="text-muted small">Pairs per round</div>
+                        <div class="fw-bold">{{ league.pairs_per_round }}</div>
                     </div>
+                    {% endif %}
                 </div>
                 <div class="d-flex gap-1">
                     <a href="{{ url_for('league_detail', league_id=league.id) }}" class="btn btn-tennis flex-grow-1">
                         View <i class="bi bi-arrow-right ms-1"></i>
                     </a>
+                    {% if is_admin %}
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#renameLeagueModal{{ league.id }}" title="Rename league">
+                        <i class="bi bi-pencil"></i>
+                    </button>
                     <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteLeagueModal{{ league.id }}" title="Delete league">
                         <i class="bi bi-trash"></i>
                     </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
+
+{% if is_admin %}
+<!-- Rename League Modals -->
+{% for league in leagues %}
+<div class="modal fade" id="renameLeagueModal{{ league.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('rename_league', league_id=league.id) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Rename League</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="renameLeagueName{{ league.id }}" class="form-label">League Name</label>
+                        <input type="text" class="form-control" id="renameLeagueName{{ league.id }}" name="name" value="{{ league.name }}" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-tennis">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 <!-- Delete League Modals -->
 {% for league in leagues %}
@@ -152,6 +210,7 @@
     </div>
 </div>
 {% endfor %}
+{% endif %}{# logged_in — modals #}
 {% else %}
 <div class="card">
     <div class="card-body text-center py-5">

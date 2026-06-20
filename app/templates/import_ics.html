@@ -24,9 +24,40 @@
                         <label class="form-label fw-bold">Our Team</label>
                         <select name="our_team_id" class="form-select" required>
                             <option value="">Select a team…</option>
+                            {% set mens_teams = [] %}
+                            {% set womens_teams = [] %}
+                            {% set mixed_teams = [] %}
                             {% for team in teams %}
-                            <option value="{{ team.id }}">{{ team.name }}</option>
+                                {% set n = team.name | lower %}
+                                {% if "women" in n or "ladies" in n %}
+                                    {% set _ = womens_teams.append(team) %}
+                                {% elif "mixed" in n %}
+                                    {% set _ = mixed_teams.append(team) %}
+                                {% elif "men" in n %}
+                                    {% set _ = mens_teams.append(team) %}
+                                {% endif %}
                             {% endfor %}
+                            {% if mens_teams %}
+                            <optgroup label="Men's">
+                                {% for team in mens_teams %}
+                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                            {% if womens_teams %}
+                            <optgroup label="Women's">
+                                {% for team in womens_teams %}
+                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                            {% if mixed_teams %}
+                            <optgroup label="Mixed">
+                                {% for team in mixed_teams %}
+                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
                         </select>
                         <div class="form-text">Which of our teams do these fixtures belong to?</div>
                     </div>

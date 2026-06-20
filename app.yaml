@@ -1,0 +1,32 @@
+---
+runtime: python314
+
+entrypoint: gunicorn -w 1 -b :$PORT run:app
+
+env: standard
+instance_class: f1
+
+automatic_scaling:
+  min_instances: 0
+  max_instances: 1
+  # Instance scales to zero when idle; Cold start acceptable for this workload
+
+# Automatically delete old versions after each deployment
+# Run: gcloud app deploy --promote --stop-previous-version
+# Or: gcloud app versions list --format='value(version.id)' |
+#     tail -n +2 | xargs gcloud app versions delete
+
+env_variables:
+  APP_ENGINE: "true"
+  DATABASE_URL: "sqlite:////tmp/tennis.db"
+  SECRET_KEY: ""
+  # SECRET_KEY is required — set at deploy time via deploy.sh (never commit
+  # a real value here; the script injects it from the environment).
+  # Firebase Authentication
+  # API key fetched from Secret Manager by deploy.sh at deploy time and
+  # injected here. Secret name: "firebase-api-key". The App Engine runtime
+  # does not need secretAccessor — the deployer's credentials are used.
+  FIREBASE_API_KEY: ""
+  # Injected at deploy time from Secret Manager by deploy.sh
+  FIREBASE_AUTH_DOMAIN: ""
+  # Defaults to {project-id}.firebaseapp.com if left blank

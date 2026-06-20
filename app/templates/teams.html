@@ -1,14 +1,48 @@
 {% extends "base.html" %}
 {% block title %}Teams — Team Tracker{% endblock %}
 
+{% macro league_category(team) %}
+  {%- set name = team.division.league.name if team.division else '' -%}
+  {%- if 'Women' in name -%}womens
+  {%- elif 'Mixed' in name -%}mixed
+  {%- elif 'Men' in name -%}mens
+  {%- else -%}other
+  {%- endif -%}
+{% endmacro %}
+
+{% macro category_badge_class(cat) %}
+  {%- if cat == 'mens' -%}bg-primary
+  {%- elif cat == 'womens' -%}bg-pink
+  {%- elif cat == 'mixed' -%}bg-success
+  {%- else -%}bg-secondary
+  {%- endif -%}
+{% endmacro %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.4.3/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<style>
+  .alloc-ts .ts-wrapper { min-width: 0; }
+  .alloc-ts .ts-control { padding: 0.15rem 0.4rem; font-size: 0.75rem; min-height: 0; border-style: dashed; background: transparent; color: #6c757d; }
+  .alloc-ts .ts-control input { font-size: 0.75rem; }
+  .alloc-ts .ts-dropdown { font-size: 0.8rem; }
+</style>
+{% endblock %}
+
 {% block content %}
+<style>
+  .bg-pink { background-color: #d63384 !important; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="text-white mb-0"><i class="bi bi-people me-2"></i>Teams</h2>
+    {% if is_admin %}
     <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addTeamModal">
         <i class="bi bi-plus-circle me-1"></i>Add Team
     </button>
+    {% endif %}
 </div>
 
+{% if is_admin %}
 <!-- Add Team Modal -->
 <div class="modal fade" id="addTeamModal" tabindex="-1">
     <div class="modal-dialog">
@@ -25,15 +59,36 @@
                     </div>
                     <div class="mb-3">
                         <label for="division_id" class="form-label">Division (optional)</label>
+                        {% set ns_lg = namespace(mens=[], womens=[], mixed=[], other=[]) %}
+                        {% for league in leagues %}
+                          {% if 'Women' in league.name %}{% set _ = ns_lg.womens.append(league) %}
+                          {% elif 'Mixed' in league.name %}{% set _ = ns_lg.mixed.append(league) %}
+                          {% elif 'Men' in league.name %}{% set _ = ns_lg.mens.append(league) %}
+                          {% else %}{% set _ = ns_lg.other.append(league) %}
+                          {% endif %}
+                        {% endfor %}
                         <select class="form-select" id="division_id" name="division_id">
                             <option value="">— No division —</option>
-                            {% for league in leagues %}
+                            {% for label, cat_leagues in [("Men's", ns_lg.mens), ("Women's", ns_lg.womens), ("Mixed", ns_lg.mixed), ("Other", ns_lg.other)] %}
+                            {% if cat_leagues %}
+                            <optgroup label="{{ label }}">
+                                {% for league in cat_leagues %}
                                 {% for division in league.divisions.all() %}
                                 <option value="{{ division.id }}">{{ league.name }} — {{ division.name }}</option>
                                 {% endfor %}
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
                             {% endfor %}
                         </select>
                         <div class="form-text">Assign this team to a league division, or leave unassigned.</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="match_fees_enabled" name="match_fees_enabled" value="1">
+                            <label class="form-check-label" for="match_fees_enabled">Enable match fee records</label>
+                        </div>
+                        <div class="form-text">Track whether players have paid their match fee for each fixture.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -45,45 +100,672 @@
     </div>
 </div>
 
-{% if teams %}
-<div class="row g-4">
-    {% for team in teams %}
-    <div class="col-md-6 col-lg-4">
-        <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-people-fill me-2"></i>{{ team.name }}</span>
-                <span class="badge bg-light text-dark">{{ (team.players|list)|length }} players</span>
+{% endif %}{# is_admin — Add Team Modal #}
+
+{% if (is_admin or captain_team_ids or user_role == 'viewer') and allocation_leagues %}
+<style>
+  .alloc-week-card.current-week { border: 2px solid #0d6efd !important; box-shadow: 0 0 0 5px rgba(13,110,253,0.25) !important; }
+  .player-badge-played { background-color: #198754 !important; color: #fff !important; }
+  .player-badge-squad { background-color: #fff !important; color: #495057 !important; border: 1px solid #adb5bd !important; }
+  .alloc-fixture-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1.5rem; align-items: center; }
+  .player-badge-empty { background-color: transparent !important; border: 1.5px dashed #6c757d !important; min-width: 5rem; color: transparent !important; }
+  .alloc-player-grid { display: grid; grid-template-columns: repeat(6, 10rem); gap: 0.3rem; justify-self: end; }
+  .alloc-player-grid .badge { display: block; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .alloc-ts.squad-member .ts-control { border-style: solid !important; background: #fff !important; color: #495057 !important; }
+  .alloc-ts.pending .ts-control { border-color: #ffc107 !important; border-style: solid !important; background-color: rgba(255,193,7,0.12) !important; color: #212529 !important; }
+</style>
+
+<hr class="border-secondary my-5">
+
+<div id="allocation-section" class="mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="text-white mb-0"><i class="bi bi-calendar-week me-2"></i>Weekly Allocation</h2>
+    <select id="alloc-league-select" class="form-select" style="width:auto; min-width:200px">
+      <option value="">— Select a league —</option>
+      {% for al in allocation_leagues %}
+      <option value="{{ al.league.id }}">{{ al.league.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div id="alloc-placeholder" class="card">
+    <div class="card-body text-center py-5">
+      <i class="bi bi-calendar3" style="font-size: 2.5rem; color: #ccc;"></i>
+      <p class="text-muted mt-2 mb-0">Select a league above to view weekly squad allocation.</p>
+    </div>
+  </div>
+
+  {% for al in allocation_leagues %}
+  <div class="alloc-league-panel d-none" data-league="{{ al.league.id }}">
+    {% for week in al.weeks %}
+    {% set ns_week_edit = namespace(can=is_admin) %}
+    {% if not is_admin %}
+      {% for fix_data in week.fixtures %}
+        {% if fix_data.fixture.home_team_id in captain_team_ids or fix_data.fixture.away_team_id in captain_team_ids %}
+          {% set ns_week_edit.can = true %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    <div class="card mb-3 alloc-week-card{% if week.is_current %} current-week{% endif %}"{% if week.apply_conflict %} data-apply-conflict="1"{% endif %}>
+      <div class="card-header d-flex align-items-center gap-2">
+        <span class="fw-semibold text-white">
+          {{ (week.round_label or week.week_start.strftime('%d %b %Y')).replace('Catch-up Week', 'Catch-up') }}
+        </span>
+        {% if week.is_current %}
+        <span class="badge bg-primary"><i class="bi bi-calendar-check me-1"></i>This week</span>
+        {% endif %}
+        {% if ns_week_edit.can %}
+        <button type="button" class="btn btn-sm btn-tennis ms-auto alloc-save-week">
+          <i class="bi bi-floppy me-1"></i>Save
+        </button>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% for fix_data in week.fixtures %}
+        {% set fixture = fix_data.fixture %}
+        {% if not loop.first %}<hr class="my-3">{% endif %}
+        <div class="text-muted small mb-1 d-flex align-items-center gap-2">
+          {% if fixture.date.strftime('%Y-%m-%d') == today %}
+            <span class="badge bg-warning text-dark"><i class="bi bi-calendar-check me-1"></i>Today</span>
+          {% else %}
+            <span><i class="bi bi-calendar3 me-1"></i>{{ fixture.date.strftime('%a %-d %b %Y') }}</span>
+          {% endif %}
+          {% if fixture.round_label and fixture.round_label != week.round_label %}
+            <span class="badge bg-secondary" title="Original round (postponed)"><i class="bi bi-arrow-repeat me-1"></i>{{ fixture.round_label }}</span>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-start gap-3">
+          <div class="alloc-fixture-grid flex-grow-1">
+            {# Home row #}
+            {% set can_edit_home = is_admin or (fixture.home_team_id in captain_team_ids) %}
+            <div class="fw-bold text-nowrap">
+              {% if fixture.home_team %}
+              <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.home_team_id) }}" class="">{{ fixture.home_team.name }}</a>
+              {% if not can_edit_home %}<i class="bi bi-slash-circle text-muted small ms-1" title="Read-only"></i>{% endif %}
+              {% else %}{{ fixture.home_team_name or '—' }}{% endif %}
             </div>
-            <div class="card-body">
-                {% if team.division %}
-                <div class="mb-3">
-                    <span class="badge bg-info">{{ team.division.league.name }} — {{ team.division.name }}</span>
-                </div>
+            {% if fixture.home_team %}
+            <div class="alloc-player-grid" data-fixture-id="{{ fixture.id }}" data-team-id="{{ fixture.home_team_id }}">
+              {% for i in range(6) %}
+                {% if i < fix_data.home_squad|length %}
+                  {% set entry = fix_data.home_squad[i] %}
+                  {% set played = entry.player_id in fix_data.played_ids %}
+                  {% if played %}
+                  <span class="badge player-badge-played"
+                        title="Played"
+                        data-player-id="{{ entry.player_id }}">
+                    {{ entry.player.name }} <i class="bi bi-check2"></i>
+                  </span>
+                  {% elif can_edit_home %}
+                  {% set squad_meta = fix_data.home_player_meta.get(entry.player_id, {}) %}
+                  <select class="alloc-squad-member" data-original-value="{{ entry.player_id }}">
+                    <option value=""></option>
+                    <option value="{{ entry.player_id }}" selected
+                            {% if squad_meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}>{{ entry.player.name }}</option>
+                    {% for p in fix_data.home_eligible %}
+                    {% set meta = fix_data.home_player_meta.get(p.id, {}) %}
+                    <option value="{{ p.id }}"
+                            {% if meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if meta.commitment_info %}data-commitment-info="{{ meta.commitment_info }}"{% endif %}
+                            {% if meta.ineligible_reason %}data-ineligible="{{ meta.ineligible_reason }}" disabled{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                  </select>
+                  {% else %}
+                  <span class="badge player-badge-squad">{{ entry.player.name }}</span>
+                  {% endif %}
+                {% elif can_edit_home and fix_data.home_eligible %}
+                  <select class="alloc-player-add" data-placeholder="+ Add">
+                    <option value=""></option>
+                    {% for p in fix_data.home_eligible %}
+                    {% set meta = fix_data.home_player_meta.get(p.id, {}) %}
+                    <option value="{{ p.id }}"
+                            {% if meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if meta.commitment_info %}data-commitment-info="{{ meta.commitment_info }}"{% endif %}
+                            {% if meta.ineligible_reason %}data-ineligible="{{ meta.ineligible_reason }}" disabled{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif can_edit_home %}
+                  <span class="badge player-badge-empty">&nbsp;</span>
                 {% endif %}
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div>
-                        <div class="text-muted small">Home fixtures</div>
-                        <div class="fw-bold">{{ (team.home_fixtures|list)|length }}</div>
-                    </div>
-                    <div>
-                        <div class="text-muted small">Away fixtures</div>
-                        <div class="fw-bold">{{ (team.away_fixtures|list)|length }}</div>
-                    </div>
+              {% endfor %}
+            </div>
+            {% else %}<div></div>{% endif %}
+            {# vs row #}
+            <div class="text-muted small py-1">vs</div>
+            <div></div>
+            {# Away row #}
+            {% set can_edit_away = is_admin or (fixture.away_team_id in captain_team_ids) %}
+            <div class="fw-bold text-nowrap">
+              {% if fixture.away_team %}
+              <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.away_team_id) }}" class="">{{ fixture.away_team.name }}</a>
+              {% if not can_edit_away %}<i class="bi bi-slash-circle text-muted small ms-1" title="Read-only"></i>{% endif %}
+              {% else %}{{ fixture.away_team_name or '—' }}{% endif %}
+            </div>
+            {% if fixture.away_team %}
+            <div class="alloc-player-grid" data-fixture-id="{{ fixture.id }}" data-team-id="{{ fixture.away_team_id }}">
+              {% for i in range(6) %}
+                {% if i < fix_data.away_squad|length %}
+                  {% set entry = fix_data.away_squad[i] %}
+                  {% set played = entry.player_id in fix_data.played_ids %}
+                  {% if played %}
+                  <span class="badge player-badge-played"
+                        title="Played"
+                        data-player-id="{{ entry.player_id }}">
+                    {{ entry.player.name }} <i class="bi bi-check2"></i>
+                  </span>
+                  {% elif can_edit_away %}
+                  {% set squad_meta = fix_data.away_player_meta.get(entry.player_id, {}) %}
+                  <select class="alloc-squad-member" data-original-value="{{ entry.player_id }}">
+                    <option value=""></option>
+                    <option value="{{ entry.player_id }}" selected
+                            {% if squad_meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}>{{ entry.player.name }}</option>
+                    {% for p in fix_data.away_eligible %}
+                    {% set meta = fix_data.away_player_meta.get(p.id, {}) %}
+                    <option value="{{ p.id }}"
+                            {% if meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if meta.commitment_info %}data-commitment-info="{{ meta.commitment_info }}"{% endif %}
+                            {% if meta.ineligible_reason %}data-ineligible="{{ meta.ineligible_reason }}" disabled{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                  </select>
+                  {% else %}
+                  <span class="badge player-badge-squad">{{ entry.player.name }}</span>
+                  {% endif %}
+                {% elif can_edit_away and fix_data.away_eligible %}
+                  <select class="alloc-player-add" data-placeholder="+ Add">
+                    <option value=""></option>
+                    {% for p in fix_data.away_eligible %}
+                    {% set meta = fix_data.away_player_meta.get(p.id, {}) %}
+                    <option value="{{ p.id }}"
+                            {% if meta.would_commit %}data-would-commit="1"{% endif %}
+                            {% if meta.commitment_info %}data-commitment-info="{{ meta.commitment_info }}"{% endif %}
+                            {% if meta.ineligible_reason %}data-ineligible="{{ meta.ineligible_reason }}" disabled{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif can_edit_away %}
+                  <span class="badge player-badge-empty">&nbsp;</span>
+                {% endif %}
+              {% endfor %}
+            </div>
+            {% else %}<div></div>{% endif %}
+          </div>
+          <div class="d-flex flex-column gap-1 flex-shrink-0">
+            {% if not can_edit_home and can_edit_away %}
+              {% set _fd_team_id = fixture.away_team_id %}
+            {% else %}
+              {% set _fd_team_id = fixture.home_team_id %}
+            {% endif %}
+            <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=_fd_team_id or '') }}"
+               class="btn btn-sm btn-outline-info" title="View fixture">
+              <i class="bi bi-eye"></i>
+            </a>
+            {% if can_edit_home or can_edit_away %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-warning alloc-postpone-btn"
+                    data-fixture-id="{{ fixture.id }}"
+                    data-fixture-date="{{ fixture.date.strftime('%Y-%m-%d') }}"
+                    data-league-id="{{ al.league.id }}"
+                    title="Postpone fixture">
+              <i class="bi bi-calendar-x"></i>
+            </button>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Squad Tie Warning Modal -->
+<div class="modal fade" id="allocCommitModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Season Tie Warning</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Saving this squad will tie the following player(s) to this team for the rest of the season — they will no longer be eligible for lower divisions:</p>
+        <ul id="alloc-commit-player-list" class="mb-3"></ul>
+        <p class="mb-0 text-muted small">Do you want to continue?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning text-dark" id="alloc-commit-confirm-btn">
+          <i class="bi bi-check-circle me-1"></i>Save Squad
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reschedule (Postpone) Modal -->
+<div class="modal fade" id="rescheduleModal" tabindex="-1" aria-labelledby="rescheduleModalLabel">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rescheduleModalLabel"><i class="bi bi-calendar-x me-2"></i>Postpone Fixture</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">The fixture will move to the new date. Its original round label will be preserved as a badge.</p>
+        <div class="mb-0">
+          <label for="reschedule-date" class="form-label">New Date</label>
+          <input type="date" class="form-control" id="reschedule-date">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="reschedule-save-btn">
+          <i class="bi bi-floppy me-1"></i>Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.4.3/dist/js/tom-select.complete.min.js"></script>
+<script>
+(function () {
+  var select = document.getElementById('alloc-league-select');
+  var placeholder = document.getElementById('alloc-placeholder');
+  var panels = document.querySelectorAll('.alloc-league-panel');
+  var _dirty = false;
+  var _navigating = false;
+  var _pendingCommitWeekCard = null;
+  var _allocCommitModal = null;
+
+  function _getAllocCommitModal() {
+    if (!_allocCommitModal) {
+      _allocCommitModal = new bootstrap.Modal(document.getElementById('allocCommitModal'));
+    }
+    return _allocCommitModal;
+  }
+
+  document.getElementById('alloc-commit-confirm-btn').addEventListener('click', function () {
+    _getAllocCommitModal().hide();
+    if (_pendingCommitWeekCard) {
+      _doSaveWeek(_pendingCommitWeekCard);
+      _pendingCommitWeekCard = null;
+    }
+  });
+
+  window.addEventListener('beforeunload', function (e) {
+    if (_dirty && !_navigating) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  function _navigateToTeams(leagueId) {
+    _navigating = true;
+    var target = '/teams' + (leagueId ? '?league=' + leagueId : '');
+    if ((location.pathname + location.search) === target) {
+      location.reload();
+    } else {
+      location.href = target + '#allocation-section';
+    }
+  }
+
+  function updateDirtyState() {
+    var any = false;
+    document.querySelectorAll('select.alloc-player-add').forEach(function (el) {
+      if (el.value) any = true;
+    });
+    document.querySelectorAll('select.alloc-squad-member').forEach(function (el) {
+      if (el.value !== el.dataset.originalValue) any = true;
+    });
+    _dirty = any;
+  }
+
+  function showLeague() {
+    var leagueId = select.value;
+    placeholder.style.display = leagueId ? 'none' : '';
+    panels.forEach(function (panel) {
+      var show = panel.dataset.league === leagueId;
+      panel.classList.toggle('d-none', !show);
+      if (show) {
+        var currentWeek = panel.querySelector('.current-week');
+        if (currentWeek) {
+          setTimeout(function () {
+            currentWeek.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 150);
+        }
+        initPlayerSelects(panel);
+      }
+    });
+  }
+
+  function updateWeekConflicts(weekCard) {
+    if (!weekCard.dataset.applyConflict) return;
+
+    // Collect all player IDs already committed this week: saved badges + pending selections.
+    var taken = new Set();
+    weekCard.querySelectorAll('[data-player-id]').forEach(function (badge) {
+      taken.add(badge.dataset.playerId);
+    });
+    weekCard.querySelectorAll('select.alloc-player-add, select.alloc-squad-member').forEach(function (el) {
+      if (el.value) taken.add(el.value);
+    });
+
+    // Disable taken options in every dropdown in this week (but not the option
+    // that is already selected in that very dropdown — it must stay selectable
+    // so the user can clear it). Never un-disable server-marked ineligible options.
+    weekCard.querySelectorAll('select.alloc-player-add, select.alloc-squad-member').forEach(function (el) {
+      var ts = el.tomselect;
+      if (!ts) return;
+      var own = el.value;
+      Object.keys(ts.options).forEach(function (v) {
+        var serverIneligible = ts._optMeta && ts._optMeta[v] && ts._optMeta[v].ineligible_reason;
+        var shouldDisable = serverIneligible || (taken.has(v) && v !== own);
+        var opt = ts.options[v];
+        if (!!opt.disabled !== shouldDisable) {
+          ts.updateOption(v, Object.assign({}, opt, { disabled: shouldDisable }));
+        }
+      });
+    });
+  }
+
+  function _scanOptMeta(selectEl) {
+    var m = {};
+    selectEl.querySelectorAll('option').forEach(function (opt) {
+      if (!opt.value) return;
+      m[opt.value] = {
+        would_commit: opt.dataset.wouldCommit === '1',
+        commitment_info: opt.dataset.commitmentInfo || '',
+        ineligible_reason: opt.dataset.ineligible || '',
+      };
+    });
+    return m;
+  }
+
+  function _eligIcon(meta, escape) {
+    if (!meta) return '';
+    if (meta.ineligible_reason) {
+      return ' <i class="bi bi-slash-circle text-danger" title="' + escape(meta.ineligible_reason) + '"></i>';
+    }
+    if (meta.commitment_info) {
+      return ' <i class="bi bi-patch-check text-success" title="Tied to this team for the season"></i>';
+    }
+    if (meta.would_commit) {
+      return ' <i class="bi bi-exclamation-triangle text-warning" title="Selecting this player will block them from playing for lower-division teams for the rest of the season."></i>';
+    }
+    return '';
+  }
+
+  function _makeRender(optMeta) {
+    return {
+      option: function (data, escape) {
+        return '<div>' + escape(data.text) + _eligIcon(optMeta[data.value], escape) + '</div>';
+      },
+      item: function (data, escape) {
+        return '<span>' + escape(data.text) + _eligIcon(optMeta[data.value], escape) + '</span>';
+      },
+    };
+  }
+
+  function initPlayerSelects(panel) {
+    panel.querySelectorAll('select.alloc-player-add:not(.tomselected)').forEach(function (el) {
+      var optMeta = _scanOptMeta(el);
+      var ts = new TomSelect(el, {
+        placeholder: el.dataset.placeholder || '+ Add',
+        allowEmptyOption: true,
+        maxItems: 1,
+        dropdownParent: 'body',
+        render: _makeRender(optMeta),
+        onDropdownOpen: function (dropdown) { dropdown.style.minWidth = '16rem'; },
+      });
+      ts._optMeta = optMeta;
+      ts.wrapper.classList.add('alloc-ts');
+      ts.on('change', function (value) {
+        ts.wrapper.classList.toggle('pending', !!value);
+        updateWeekConflicts(el.closest('.alloc-week-card'));
+        updateDirtyState();
+      });
+    });
+    panel.querySelectorAll('select.alloc-squad-member:not(.tomselected)').forEach(function (el) {
+      var orig = el.dataset.originalValue;
+      var optMeta = _scanOptMeta(el);
+      var ts = new TomSelect(el, {
+        allowEmptyOption: true,
+        maxItems: 1,
+        dropdownParent: 'body',
+        render: _makeRender(optMeta),
+        onDropdownOpen: function (dropdown) { dropdown.style.minWidth = '16rem'; },
+      });
+      ts._optMeta = optMeta;
+      ts.wrapper.classList.add('alloc-ts', 'squad-member');
+      ts.on('change', function (value) {
+        ts.wrapper.classList.toggle('pending', value !== orig);
+        updateWeekConflicts(el.closest('.alloc-week-card'));
+        updateDirtyState();
+      });
+    });
+    // Apply conflict greying immediately after all selects in this panel are ready.
+    panel.querySelectorAll('.alloc-week-card').forEach(updateWeekConflicts);
+  }
+
+  function saveWeek(weekCard) {
+    // Check for players whose selection would trigger a season commitment.
+    var wouldCommitNames = [];
+    weekCard.querySelectorAll('select.alloc-player-add, select.alloc-squad-member').forEach(function (sel) {
+      var val = sel.value;
+      if (!val) return;
+      var ts = sel.tomselect;
+      if (!ts || !ts._optMeta) return;
+      var meta = ts._optMeta[val];
+      if (meta && meta.would_commit) {
+        var label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : val;
+        wouldCommitNames.push(label);
+      }
+    });
+    if (wouldCommitNames.length) {
+      var list = document.getElementById('alloc-commit-player-list');
+      list.innerHTML = wouldCommitNames.map(function (n) { return '<li>' + n + '</li>'; }).join('');
+      _pendingCommitWeekCard = weekCard;
+      _getAllocCommitModal().show();
+      return;
+    }
+    _doSaveWeek(weekCard);
+  }
+
+  function _doSaveWeek(weekCard) {
+    // Collect player IDs grouped by fixture+team from the grids in this week card.
+    var squads = {};
+    weekCard.querySelectorAll('.alloc-player-grid').forEach(function (grid) {
+      var fixtureId = grid.dataset.fixtureId;
+      var teamId = grid.dataset.teamId;
+      if (!fixtureId || !teamId) return;
+      var key = fixtureId + ':' + teamId;
+      if (!squads[key]) squads[key] = { fixtureId: fixtureId, teamId: teamId, ids: new Set(), hasSquadSlots: false };
+      // Existing saved / played players.
+      grid.querySelectorAll('[data-player-id]').forEach(function (badge) {
+        squads[key].ids.add(badge.dataset.playerId);
+      });
+      // Squad-member slots: track presence so an all-empty save (de-select all) still fires.
+      grid.querySelectorAll('select.alloc-squad-member').forEach(function (sel) {
+        squads[key].hasSquadSlots = true;
+        if (sel.value) squads[key].ids.add(sel.value);
+      });
+      // Add-player slots: only contribute if a player was actually chosen.
+      grid.querySelectorAll('select.alloc-player-add').forEach(function (sel) {
+        if (sel.value) squads[key].ids.add(sel.value);
+      });
+    });
+
+    var entries = Object.values(squads).filter(function (s) { return s.ids.size > 0 || s.hasSquadSlots; });
+    if (!entries.length) return;
+
+    var btn = weekCard.querySelector('.alloc-save-week');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving…';
+
+    var promises = entries.map(function (squad) {
+      var fd = new FormData();
+      squad.ids.forEach(function (id) { fd.append('squad_player_ids', id); });
+      fd.append('team_id', squad.teamId);
+      return fetch('/fixtures/' + squad.fixtureId + '/squad', {
+        method: 'POST',
+        body: fd,
+        redirect: 'manual',
+      });
+    });
+
+    Promise.all(promises).then(function () {
+      _navigateToTeams(select.value);
+    }).catch(function () {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-floppy me-1"></i>Save';
+      alert('Error saving squad. Please try again.');
+    });
+  }
+
+  select.addEventListener('change', showLeague);
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.alloc-save-week');
+    if (btn) saveWeek(btn.closest('.alloc-week-card'));
+  });
+
+  // Auto-select league from ?league= query param (set after saving)
+  var params = new URLSearchParams(location.search);
+  var preselect = params.get('league');
+  if (preselect) {
+    select.value = preselect;
+  } else if (select.options.length === 2) {
+    select.selectedIndex = 1;
+  }
+  showLeague();
+
+  // Postpone / Reschedule
+  var rescheduleModal = null;
+  var _rescheduleFixtureId = null;
+  var _rescheduleLeagueId = null;
+
+  function getRescheduleModal() {
+    if (!rescheduleModal) {
+      rescheduleModal = new bootstrap.Modal(document.getElementById('rescheduleModal'));
+    }
+    return rescheduleModal;
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.alloc-postpone-btn');
+    if (!btn) return;
+    _rescheduleFixtureId = btn.dataset.fixtureId;
+    _rescheduleLeagueId = btn.dataset.leagueId;
+    document.getElementById('reschedule-date').value = btn.dataset.fixtureDate;
+    getRescheduleModal().show();
+  });
+
+  document.getElementById('reschedule-save-btn').addEventListener('click', function () {
+    var newDate = document.getElementById('reschedule-date').value;
+    if (!newDate || !_rescheduleFixtureId) return;
+    var saveBtn = document.getElementById('reschedule-save-btn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving…';
+    var fd = new FormData();
+    fd.append('new_date', newDate);
+    fetch('/fixtures/' + _rescheduleFixtureId + '/reschedule', {
+      method: 'POST',
+      body: fd,
+    }).then(function (resp) {
+      return resp.json();
+    }).then(function (data) {
+      if (data.ok) {
+        _navigateToTeams(_rescheduleLeagueId);
+      } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-floppy me-1"></i>Save';
+      }
+    }).catch(function () {
+      alert('Error rescheduling fixture. Please try again.');
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="bi bi-floppy me-1"></i>Save';
+    });
+    getRescheduleModal().hide();
+  });
+}());
+</script>
+
+{% endif %}
+
+{% if teams %}
+
+{# Partition teams into four buckets #}
+{% set ns = namespace(mens=[], womens=[], mixed=[], other=[]) %}
+{% for team in teams %}
+  {% set cat = league_category(team) | trim %}
+  {% if cat == 'womens' %}{% set _ = ns.womens.append(team) %}
+  {% elif cat == 'mixed' %}{% set _ = ns.mixed.append(team) %}
+  {% elif cat == 'mens' %}{% set _ = ns.mens.append(team) %}
+  {% else %}{% set _ = ns.other.append(team) %}
+  {% endif %}
+{% endfor %}
+
+{% set sections = [
+  ("Men's",   "bi-people-fill",  "bg-primary",   ns.mens),
+  ("Women's", "bi-people-fill",  "bg-pink",       ns.womens),
+  ("Mixed",   "bi-people-fill",  "bg-success",    ns.mixed),
+  ("Other / Unassigned", "bi-people", "bg-secondary", ns.other),
+] %}
+
+{% for section_label, section_icon, badge_class, section_teams in sections %}
+{% if section_teams %}
+<div class="mb-5">
+    <h4 class="text-white mb-3">
+        <i class="bi {{ section_icon }} me-2"></i>{{ section_label }}
+        <span class="badge {{ badge_class }} ms-2 fs-6">{{ section_teams | length }}</span>
+    </h4>
+    <div class="row g-4">
+        {% for team in section_teams %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-people-fill me-2"></i>{{ team.name }}</span>
+                    <span class="badge bg-light text-dark">{{ (team.players|list)|length }} players</span>
                 </div>
-                <div class="d-flex gap-1">
-                    <a href="{{ url_for('team_detail', team_id=team.id) }}" class="btn btn-tennis flex-grow-1">
-                        View <i class="bi bi-arrow-right ms-1"></i>
-                    </a>
-                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteTeamModal{{ team.id }}" title="Delete team">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                <div class="card-body">
+                    {% if team.division %}
+                    <div class="mb-3">
+                        <span class="badge {{ badge_class }}">{{ team.division.league.name }} — {{ team.division.name }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <div class="text-muted small">Home fixtures</div>
+                            <div class="fw-bold">{{ (team.home_fixtures|list)|length }}</div>
+                        </div>
+                        <div>
+                            <div class="text-muted small">Away fixtures</div>
+                            <div class="fw-bold">{{ (team.away_fixtures|list)|length }}</div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <a href="{{ url_for('team_detail', team_id=team.id) }}" class="btn btn-tennis flex-grow-1">
+                            View <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                        {% if is_admin %}
+                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteTeamModal{{ team.id }}" title="Delete team">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 </div>
+{% endif %}
+{% endfor %}
 
+{% if is_admin %}
 <!-- Delete Team Modals -->
 {% for team in teams %}
 <div class="modal fade" id="deleteTeamModal{{ team.id }}" tabindex="-1">
@@ -114,12 +796,13 @@
     </div>
 </div>
 {% endfor %}
+{% endif %}{# is_admin — delete team modals #}
 {% else %}
 <div class="card">
     <div class="card-body text-center py-5">
         <i class="bi bi-people" style="font-size: 3rem; color: #ccc;"></i>
         <h5 class="mt-3 text-muted">No teams yet</h5>
-        <p class="text-muted">Add your first team to get started, or upload a scoresheet to auto-create teams.</p>
+        <p class="text-muted">Add your first team to get started.</p>
     </div>
 </div>
 {% endif %}

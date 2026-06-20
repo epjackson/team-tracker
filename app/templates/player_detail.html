@@ -4,10 +4,38 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <a href="{{ url_for('team_detail', team_id=(player.teams|list)[0].id) if (player.teams|list) else url_for('list_teams') }}" class="text-white-50 text-decoration-none">
-            <i class="bi bi-arrow-left me-1"></i>{{ (player.teams|list)[0].name if (player.teams|list) else 'Teams' }}
+        <a href="{{ url_for('team_detail', team_id=(player.teams|list)[0].id) if (player.teams|list) else url_for('list_teams') }}"
+           onclick="if (history.length > 1) { history.back(); return false; }"
+           class="text-white-50 text-decoration-none">
+            <i class="bi bi-arrow-left me-1"></i>Back
         </a>
-        <h2 class="text-white mb-0"><i class="bi bi-person me-2"></i>{{ player.name }}</h2>
+        <h2 class="text-white mb-0">
+            <i class="bi bi-person me-2"></i>{{ player.name }}
+            {% set captaincies = player.captaincies %}
+            {% if captaincies %}
+            <span class="badge bg-warning text-dark ms-2 fs-6 align-middle"
+                  data-bs-toggle="popover"
+                  data-bs-trigger="hover focus"
+                  data-bs-placement="right"
+                  data-bs-content="Captain of: {{ captaincies | map(attribute='team.name') | join(', ') }}">
+                <i class="bi bi-star-fill me-1"></i>CAPTAIN
+            </span>
+            {% endif %}
+        </h2>
+        {% if player.lta_number or (show_phone and player.contact_telephone) %}
+        <div class="d-flex gap-2 flex-wrap mt-2">
+            {% if player.lta_number %}
+            <button class="btn btn-sm btn-outline-light copy-btn" data-copy="{{ player.lta_number }}">
+                <i class="bi bi-card-text me-1"></i>LTA: {{ player.lta_number }}
+            </button>
+            {% endif %}
+            {% if show_phone and player.contact_telephone %}
+            <button class="btn btn-sm btn-outline-light copy-btn" data-copy="{{ player.contact_telephone }}">
+                <i class="bi bi-telephone me-1"></i>{{ player.contact_telephone }}
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
     <div class="d-flex gap-2">
         <div>
@@ -15,12 +43,18 @@
             <a href="{{ url_for('team_detail', team_id=team.id) }}" class="badge bg-info text-decoration-none me-1">{{ team.name }}</a>
             {% endfor %}
         </div>
+        {% if is_admin %}
+        <a href="{{ url_for('admin_add_player_details') }}" class="btn btn-outline-success ms-2">
+            <i class="bi bi-person-plus me-1"></i>Add Another Player
+        </a>
         <button class="btn btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#deletePlayerModal">
             <i class="bi bi-trash me-1"></i>Delete
         </button>
+        {% endif %}
     </div>
 </div>
 
+{% if is_admin %}
 <!-- Delete Player Modal -->
 <div class="modal fade" id="deletePlayerModal" tabindex="-1">
     <div class="modal-dialog">
@@ -36,7 +70,7 @@
                     <p class="text-muted">This will:</p>
                     <ul class="text-muted">
                         <li>Remove the player profile from the system</li>
-                        <li>Delete all {{ wins + losses }} match records</li>
+                        <li>Delete all {{ total_rubbers }} rubber records</li>
                         <li>Remove them from all teams ({{ player.teams|length }} team(s))</li>
                     </ul>
                     <p class="text-warning"><strong>This cannot be reversed.</strong></p>
@@ -49,25 +83,26 @@
         </div>
     </div>
 </div>
+{% endif %}{# logged_in — delete player modal #}
 
 <!-- Stats cards -->
 <div class="row g-4 mb-4">
     <div class="col-md-3">
         <div class="card stat-card">
             <div class="stat-number">{{ wins + losses }}</div>
-            <div class="stat-label">Matches Played</div>
+            <div class="stat-label">Rubbers Played</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <div class="stat-number text-success">{{ wins }}</div>
-            <div class="stat-label">Wins</div>
+            <div class="stat-label">Rubbers Won</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <div class="stat-number text-danger">{{ losses }}</div>
-            <div class="stat-label">Losses</div>
+            <div class="stat-label">Rubbers Lost</div>
         </div>
     </div>
     <div class="col-md-3">
@@ -91,32 +126,62 @@
         <i class="bi bi-shield-lock me-2"></i>League Eligibility
     </div>
     <div class="card-body p-0">
-        <table class="table table-hover mb-0">
+        <table class="table table-hover mb-0" style="table-layout:fixed;">
+            <colgroup>
+                <col style="width:60%;">
+                <col style="width:20%;">
+                <col style="width:20%;">
+            </colgroup>
             <thead>
                 <tr>
-                    <th>Team</th>
                     <th>League</th>
-                    <th class="text-center">Fixtures Played</th>
-                    <th class="text-center">Status</th>
+                    <th class="text-center">Early Rounds</th>
+                    <th class="text-center">Appearances by Team</th>
                 </tr>
             </thead>
             <tbody>
                 {% for info in eligibility_info %}
                 <tr>
-                    <td class="fw-bold">{{ info.team.name }}</td>
                     <td>{{ info.league.name }}</td>
-                    <td class="text-center">{{ info.current_fixtures }}</td>
                     <td class="text-center">
-                        {% if info.committed_to_different_team %}
-                        <span class="badge bg-danger"><i class="bi bi-exclamation-circle me-1"></i>Committed elsewhere</span>
-                        {% elif info.eligible %}
-                        {% if info.commitment_threshold %}
-                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>{{ info.current_fixtures }}/{{ info.commitment_threshold }} fixtures</span>
-                        {% else %}
-                        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Eligible</span>
-                        {% endif %}
-                        {% else %}
-                        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Ineligible</span>
+                        <div class="d-flex gap-2 justify-content-center flex-wrap">
+                            {% for r in range(1, info.num_early_rounds + 1) %}
+                            <div class="text-center" style="min-width:1.8rem;">
+                                <div style="font-size:0.7rem; line-height:1.2;" class="text-muted">R{{ r }}</div>
+                                {% if r in info.early_rounds_played %}
+                                <span class="badge bg-primary" title="Played for {{ info.early_rounds_played[r] }}">&#10003;</span>
+                                {% elif r in info.early_rounds_squad %}
+                                <span class="badge bg-info text-dark" title="Selected for {{ info.early_rounds_squad[r] }}">&#10003;</span>
+                                {% else %}
+                                <span class="badge bg-secondary opacity-25">&ndash;</span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        {% if info.team_matrix %}
+                        <div class="d-flex gap-2 justify-content-center flex-wrap">
+                            {% for entry in info.team_matrix %}
+                            <div class="text-center" style="min-width:1.8rem;"
+                                 {% if entry.state == 'blocked' %}
+                                 data-bs-toggle="tooltip"
+                                 data-bs-placement="top"
+                                 title="Ineligible"
+                                 {% endif %}>
+                                <div style="font-size:0.7rem; line-height:1.2;"
+                                     class="{% if entry.state == 'blocked' %}text-muted opacity-25{% else %}text-muted{% endif %}">
+                                    {% if entry.state == 'blocked' %}<s>{{ entry.label }}</s>{% else %}{{ entry.label }}{% endif %}
+                                </div>
+                                <span class="badge
+                                    {% if entry.state == 'committed' %}bg-warning text-dark
+                                    {% elif entry.state == 'blocked' %}bg-secondary opacity-25
+                                    {% elif entry.count > 0 %}bg-success
+                                    {% else %}bg-secondary opacity-50
+                                    {% endif %}">{{ entry.count }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
                         {% endif %}
                     </td>
                 </tr>
@@ -133,44 +198,60 @@
         <i class="bi bi-clock-history me-2"></i>Match History
     </div>
     <div class="card-body p-0">
-        {% if results %}
-        <table class="table table-hover mb-0">
+        {% if fixture_rows %}
+        <table class="table table-hover mb-0" style="table-layout:fixed;">
+            {% if is_admin %}
+            <colgroup>
+                <col style="width:55%;">
+                <col style="width:18%;">
+                <col style="width:17%;">
+                <col style="width:10%;">
+            </colgroup>
+            {% else %}
+            <colgroup>
+                <col style="width:62%;">
+                <col style="width:20%;">
+                <col style="width:18%;">
+            </colgroup>
+            {% endif %}
             <thead>
                 <tr>
-                    <th>Date</th>
                     <th>Fixture</th>
-                    <th>Rubber</th>
-                    <th>Side</th>
-                    <th>Result</th>
+                    <th class="text-center">Team</th>
+                    <th class="text-center">Result</th>
+                    {% if is_admin %}<th class="text-center">Fee</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
-                {% for result in results %}
+                {% for row in fixture_rows %}
                 <tr>
-                    <td>{{ result.rubber.fixture.date.strftime('%d %b %Y') }}</td>
                     <td>
-                        <a href="{{ url_for('fixture_detail', fixture_id=result.rubber.fixture.id) }}" class="text-decoration-none">
-                            {{ result.rubber.fixture.home_team.name if result.rubber.fixture.home_team else '—' }} vs {{ result.rubber.fixture.away_team.name if result.rubber.fixture.away_team else '—' }}
+                        <div class="text-muted" style="font-size:0.8rem;">{{ row.fixture.date.strftime('%d %b %Y') }}</div>
+                        <a href="{{ url_for('fixture_detail', fixture_id=row.fixture.id) }}" class="text-decoration-none">
+                            vs {{ row.opposition }}
                         </a>
                     </td>
-                    <td>
-                        <span class="badge bg-secondary">R{{ result.rubber.rubber_number }}</span>
-                        <span class="badge {% if result.rubber.rubber_type == 'singles' %}bg-info{% else %}bg-warning{% endif %} ms-1">
-                            {{ result.rubber.rubber_type }}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="badge {% if result.side == 'home' %}bg-success{% else %}bg-primary{% endif %}">
-                            {{ result.side|capitalize }}
-                        </span>
-                    </td>
-                    <td>
-                        {% if result.won %}
-                        <span class="badge bg-success"><i class="bi bi-trophy me-1"></i>Won</span>
+                    <td class="text-center">
+                        {% if row.player_team %}
+                        <a href="{{ url_for('team_detail', team_id=row.player_team.id) }}" class="badge bg-info text-decoration-none">{{ row.player_team.name }}</a>
                         {% else %}
-                        <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Lost</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
+                    <td class="text-center">
+                        {% for outcome in row.rubber_outcomes %}
+                        <span class="badge {% if outcome == 'won' %}bg-success{% elif outcome == 'tied' %}bg-warning text-dark{% elif outcome == 'walkover' %}bg-secondary{% else %}bg-danger{% endif %} me-1" style="width:1.8rem; height:1.8rem; display:inline-flex; align-items:center; justify-content:center; font-size:0.8rem;">{{ 'W' if outcome == 'won' else ('T' if outcome == 'tied' else ('-' if outcome == 'walkover' else 'L')) }}</span>
+                        {% endfor %}
+                    </td>
+                    {% if is_admin %}
+                    <td class="text-center">
+                        {% if row.fee_paid %}
+                        <span class="badge bg-success" data-bs-toggle="tooltip" title="Fee paid"><i class="bi bi-check-lg"></i></span>
+                        {% else %}
+                        <span class="badge bg-secondary opacity-50" data-bs-toggle="tooltip" title="Fee not recorded"><i class="bi bi-dash"></i></span>
+                        {% endif %}
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -183,4 +264,24 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+        navigator.clipboard.writeText(this.dataset.copy).then(() => {
+            const original = this.innerHTML;
+            this.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
+            this.classList.replace('btn-outline-light', 'btn-success');
+            setTimeout(() => {
+                this.innerHTML = original;
+                this.classList.replace('btn-success', 'btn-outline-light');
+            }, 1500);
+        });
+    });
+});
+</script>
 {% endblock %}

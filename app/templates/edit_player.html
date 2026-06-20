@@ -57,21 +57,16 @@
                         </div>
 
                         <div class="col-md-6">
-                            <label for="lta_number" class="form-label">LTA Number <span class="text-danger">*</span></label>
+                            <label for="lta_number" class="form-label">LTA Number</label>
                             <input type="text" class="form-control" id="lta_number" name="lta_number"
-                                   value="{{ player.lta_number }}" required>
+                                   value="{{ player.lta_number or '' }}">
                         </div>
 
-                        {# ── Frozen fields ────────────────────────────────── #}
                         <div class="col-md-6">
-                            <label for="contact_telephone" class="form-label d-flex align-items-center gap-2">
-                                Contact Telephone
-                                <span class="badge bg-secondary" style="font-size:0.65rem; font-weight:500; letter-spacing:.5px;">
-                                    <i class="bi bi-lock me-1"></i>Coming soon
-                                </span>
-                            </label>
-                            <input type="text" class="form-control bg-light text-muted" id="contact_telephone"
-                                   disabled placeholder="Not yet available">
+                            <label for="contact_telephone" class="form-label">Contact Telephone</label>
+                            <input type="tel" class="form-control" id="contact_telephone"
+                                   name="contact_telephone"
+                                   value="{{ player.contact_telephone or '' }}">
                         </div>
 
                         <div class="col-12">

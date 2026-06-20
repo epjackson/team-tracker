@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Sign In - Team Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="text-center mb-4">
+            <h2 class="text-white fw-bold">
+                <i class="bi bi-circle-fill text-success me-2"></i>Team Tracker
+            </h2>
+            <p class="text-white-50">Yarm Tennis Club — sign in to continue</p>
+        </div>
+        <div class="card">
+            <div class="card-header text-center py-3">
+                <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Sign In</h5>
+            </div>
+            <div class="card-body p-4">
+
+                <div id="locked-banner" class="alert alert-warning d-none" role="alert">
+                    <i class="bi bi-person-lock me-2"></i><span id="locked-message"></span>
+                </div>
+
+                <div id="send-link-section">
+                    <p class="text-muted text-center mb-3">Enter your email to receive a sign-in link.</p>
+                    <form id="email-form">
+                        <div class="mb-3">
+                            <label for="email-input" class="form-label">Email address</label>
+                            <input type="email" class="form-control" id="email-input"
+                                   placeholder="you@example.com" required autofocus>
+                        </div>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success" id="send-btn">
+                                <i class="bi bi-envelope me-2"></i>Send sign-in link
+                            </button>
+                        </div>
+                    </form>
+                    <div id="send-error" class="alert alert-danger mt-3 d-none"></div>
+                </div>
+
+                <div id="check-email-section" class="d-none text-center py-2">
+                    <i class="bi bi-envelope-check display-4 text-success"></i>
+                    <h5 class="mt-3">Check your email</h5>
+                    <p class="text-muted">We sent a sign-in link to <strong id="sent-to-email"></strong>.
+                        Click the link in that email to sign in.</p>
+                    <button class="btn btn-outline-secondary btn-sm" id="resend-btn">Send another link</button>
+                </div>
+
+                <div id="signing-in-section" class="d-none text-center py-4">
+                    <div class="spinner-border text-success" role="status">
+                        <span class="visually-hidden">Signing in…</span>
+                    </div>
+                    <p class="mt-3 text-muted">Signing you in…</p>
+                </div>
+
+                <div id="error-section" class="d-none text-center py-2">
+                    <div class="alert alert-danger" id="error-message"></div>
+                    <a href="/login" class="btn btn-outline-secondary btn-sm">Try again</a>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+    var _apiKey    = {{ firebase_api_key    | tojson }};
+    var _projectId = {{ firebase_project_id | tojson }};
+    var _authDomain = {{ firebase_auth_domain | tojson }};
+    var _next = {{ next | tojson }};
+
+    var SECTIONS = ['send-link-section', 'check-email-section', 'signing-in-section', 'error-section'];
+
+    function showSection(id) {
+        SECTIONS.forEach(function (s) {
+            document.getElementById(s).classList.toggle('d-none', s !== id);
+        });
+    }
+
+    function showError(msg) {
+        document.getElementById('error-message').textContent = msg;
+        showSection('error-section');
+    }
+
+    function showLockedBanner(msg, reloadAfterMs) {
+        document.getElementById('locked-message').textContent = msg;
+        document.getElementById('locked-banner').classList.remove('d-none');
+        document.getElementById('send-btn').disabled = true;
+        if (reloadAfterMs) {
+            setTimeout(function () { window.location.reload(); }, reloadAfterMs);
+        }
+    }
+
+    function clearLockedBanner() {
+        document.getElementById('locked-banner').classList.add('d-none');
+        document.getElementById('send-btn').disabled = false;
+    }
+
+    function checkSessionStatus() {
+        fetch('/auth/status')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.locked) {
+                    var mins = Math.ceil(data.expires_in / 60);
+                    showLockedBanner(
+                        'Another user is currently logged in. Their session expires in approximately ' +
+                        mins + ' minute' + (mins !== 1 ? 's' : '') + '. Please try again then.',
+                        (data.expires_in + 2) * 1000
+                    );
+                } else {
+                    clearLockedBanner();
+                }
+            })
+            .catch(function () { /* silently ignore network errors */ });
+    }
+
+    if (!_apiKey || !_projectId) {
+        showError('Sign-in is not configured. Please contact the administrator.');
+    } else {
+        firebase.initializeApp({ apiKey: _apiKey, authDomain: _authDomain, projectId: _projectId });
+        var auth = firebase.auth();
+
+        var actionCodeSettings = {
+            url: window.location.origin + '/login',
+            handleCodeInApp: true
+        };
+
+        // Completing a sign-in link click
+        if (auth.isSignInWithEmailLink(window.location.href)) {
+            showSection('signing-in-section');
+            var email = window.localStorage.getItem('emailForSignIn');
+            if (!email) {
+                email = window.prompt('Please confirm your email address to complete sign-in:');
+            }
+            auth.signInWithEmailLink(email, window.location.href)
+                .then(function (result) {
+                    window.localStorage.removeItem('emailForSignIn');
+                    return result.user.getIdToken();
+                })
+                .then(function (token) {
+                    return fetch('/auth/verify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: token })
+                    });
+                })
+                .then(function (resp) {
+                    if (resp.ok) {
+                        window.location.href = _next;
+                    } else if (resp.status === 409) {
+                        return resp.json().then(function (data) {
+                            showError(data.message || 'Another user is currently logged in. Please try again later.');
+                        });
+                    } else {
+                        showError('Sign-in failed. Your account may not have access.');
+                    }
+                })
+                .catch(function (err) {
+                    showError('Sign-in link error: ' + err.message);
+                });
+
+        } else {
+            // Normal view: check if the app is locked before showing the form.
+            checkSessionStatus();
+
+            document.getElementById('email-form').addEventListener('submit', function (e) {
+                e.preventDefault();
+                var email = document.getElementById('email-input').value.trim();
+                var btn   = document.getElementById('send-btn');
+                var errDiv = document.getElementById('send-error');
+
+                btn.disabled = true;
+                btn.innerHTML = 'Sending…';
+                errDiv.classList.add('d-none');
+
+                auth.sendSignInLinkToEmail(email, actionCodeSettings)
+                    .then(function () {
+                        window.localStorage.setItem('emailForSignIn', email);
+                        document.getElementById('sent-to-email').textContent = email;
+                        showSection('check-email-section');
+                    })
+                    .catch(function (err) {
+                        errDiv.textContent = err.message;
+                        errDiv.classList.remove('d-none');
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="bi bi-envelope me-2"></i>Send sign-in link';
+                    });
+            });
+
+            document.getElementById('resend-btn').addEventListener('click', function () {
+                showSection('send-link-section');
+            });
+        }
+    }
+</script>
+{% endblock %}
