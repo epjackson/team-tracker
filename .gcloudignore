@@ -1,0 +1,17 @@
+.gcloudignore
+.gitignore
+!app/version.py
+.pre-commit-config.yaml
+CLAUDE.md
+LICENSE
+README.md
+
+*.DS_Store
+.claude
+.git
+.github
+.venv
+__pycache__
+instance
+app_deploy_temp.yaml
+terraform/

@@ -217,3 +217,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated at deploy time
+app/version.py
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AI
+*.claude/
+*CLAUDE.md
