@@ -41,6 +41,7 @@ from .models import (
     Team,
     TeamCaptain,
     _division_rank,
+    _team_rank,
     check_player_eligibility,
     check_week_conflict,
     db,
@@ -1129,55 +1130,15 @@ def create_app(config=None):
                             }
                         else:
                             ct = existing.team
-                            ct_div = ct.division if ct else None
-                            t_div = team.division
-                            if ct_div and t_div:
-                                ct_rank = _division_rank(ct_div.name)
-                                t_rank = _division_rank(t_div.name)
-                                if t_rank > ct_rank:
-                                    result[_p.id] = {
-                                        "would_commit": False,
-                                        "commitment_info": None,
-                                        "ineligible_reason": (f"Tied to {ct.name} ({ct_div.name})"),
-                                    }
-                                else:
-                                    result[_p.id] = {
-                                        "would_commit": False,
-                                        "commitment_info": None,
-                                        "ineligible_reason": None,
-                                    }
-                            else:
-                                result[_p.id] = {
-                                    "would_commit": False,
-                                    "commitment_info": None,
-                                    "ineligible_reason": (
-                                        f"Tied to " f"{ct.name if ct else 'another team'}"
-                                    ),
-                                }
-                    elif _p.id in _implicit_commit_by_player:
-                        # Player has hit the threshold via match results but no formal record yet.
-                        imp_tid = _implicit_commit_by_player[_p.id]
-                        imp_team = _league_teams_by_id.get(imp_tid)
-                        if imp_tid == team.id:
-                            result[_p.id] = {
-                                "would_commit": False,
-                                "commitment_info": team.name,
-                                "ineligible_reason": None,
-                            }
-                        else:
-                            ct_div = imp_team.division if imp_team else None
-                            t_div = team.division
-                            if ct_div and t_div:
-                                ct_rank = _division_rank(ct_div.name)
-                                t_rank = _division_rank(t_div.name)
-                                if t_rank > ct_rank:
+                            if ct:
+                                if _team_rank(team) >= _team_rank(ct):
+                                    ct_div = ct.division
                                     result[_p.id] = {
                                         "would_commit": False,
                                         "commitment_info": None,
                                         "ineligible_reason": (
-                                            f"Tied to {imp_team.name} ({ct_div.name})"
-                                            if imp_team
-                                            else "Tied to another team"
+                                            f"Tied to {ct.name}"
+                                            + (f" ({ct_div.name})" if ct_div else "")
                                         ),
                                     }
                                 else:
@@ -1190,11 +1151,34 @@ def create_app(config=None):
                                 result[_p.id] = {
                                     "would_commit": False,
                                     "commitment_info": None,
+                                    "ineligible_reason": "Tied to another team",
+                                }
+                    elif _p.id in _implicit_commit_by_player:
+                        # Player has hit the threshold via match results but no formal record yet.
+                        imp_tid = _implicit_commit_by_player[_p.id]
+                        imp_team = _league_teams_by_id.get(imp_tid)
+                        if imp_tid == team.id:
+                            result[_p.id] = {
+                                "would_commit": False,
+                                "commitment_info": team.name,
+                                "ineligible_reason": None,
+                            }
+                        else:
+                            if imp_team and _team_rank(team) >= _team_rank(imp_team):
+                                ct_div = imp_team.division
+                                result[_p.id] = {
+                                    "would_commit": False,
+                                    "commitment_info": None,
                                     "ineligible_reason": (
                                         f"Tied to {imp_team.name}"
-                                        if imp_team
-                                        else "Tied to another team"
+                                        + (f" ({ct_div.name})" if ct_div else "")
                                     ),
+                                }
+                            else:
+                                result[_p.id] = {
+                                    "would_commit": False,
+                                    "commitment_info": None,
+                                    "ineligible_reason": None,
                                 }
                     elif _commit_threshold > 0:
                         cur = _fix_counts.get((_p.id, team.id), 0)
@@ -1545,7 +1529,7 @@ def create_app(config=None):
             league_team_infos = []
             for division in divisions:
                 div_rank = _division_rank(division.name)
-                for team in division.teams.all():
+                for team in sorted(division.teams.all(), key=_team_rank):
                     info = {
                         "id": team.id,
                         "name": team.name,
@@ -1554,6 +1538,7 @@ def create_app(config=None):
                         "league_gender": league_gender,
                         "division_name": division.name,
                         "division_rank": div_rank,
+                        "team_rank": _team_rank(team),
                         "threshold": threshold,
                     }
                     league_team_infos.append(info)
@@ -1622,44 +1607,40 @@ def create_app(config=None):
                         or 0
                     )
 
-                # Determine the effective committed team: highest-division team where
+                # Determine the effective committed team: highest-ranked team where
                 # the player has either a formal commitment or has hit the count threshold.
-                # league_teams is sorted by division rank ascending (Div 1 first), so the
-                # first count-based hit is always the highest available division.
+                # league_teams is sorted by team_rank ascending (best team first).
                 committed_team_id = None
                 committed_rank = None
-                committed_division_name = None
+                committed_team_name = None
 
-                # Count-based scan (highest division first).
+                # Count-based scan (best team first).
                 for ti in league_teams:
                     if team_counts.get(ti["id"], 0) >= threshold:
                         committed_team_id = ti["id"]
-                        committed_rank = ti["division_rank"]
-                        committed_division_name = ti["division_name"]
+                        committed_rank = ti["team_rank"]
+                        committed_team_name = ti["name"]
                         break
 
-                # Formal record: use if it's in a higher division than the count-based result.
+                # Formal record: use if it's higher in hierarchy than the count-based result.
                 existing = commitments_map.get((player_id, league_id))
                 if existing:
                     ct = existing.team
-                    formal_rank = (
-                        _division_rank(ct.division.name) if (ct and ct.division) else float("inf")
-                    )
+                    formal_rank = _team_rank(ct) if ct else (float("inf"), float("inf"))
                     if committed_rank is None or formal_rank < committed_rank:
                         committed_team_id = existing.team_id
                         committed_rank = formal_rank
-                        committed_division_name = ct.division.name if (ct and ct.division) else None
+                        committed_team_name = ct.name if ct else None
 
                 # Assign state per team, matching player_detail logic exactly.
                 for ti in league_teams:
                     team_id = ti["id"]
                     count = team_counts.get(team_id, 0)
-                    div_rank = ti["division_rank"]
                     if committed_team_id is None:
                         state = "eligible"
                     elif team_id == committed_team_id:
                         state = "committed"
-                    elif div_rank > committed_rank:
+                    elif ti["team_rank"] >= committed_rank:
                         state = "blocked"
                     else:
                         state = "eligible"
@@ -1667,7 +1648,7 @@ def create_app(config=None):
                         "state": state,
                         "count": count,
                         "threshold": threshold,
-                        "committed_division_name": committed_division_name,
+                        "committed_team_name": committed_team_name,
                     }
 
         return render_template(
@@ -1934,12 +1915,12 @@ def create_app(config=None):
                     )
                     m = re.search(r"\b([A-Z])\b", lt.name)
                     label = m.group(1) if m else lt.name.split()[-1]
-                    div_rank = _division_rank(lt.division.name) if lt.division else float("inf")
                     team_matrix.append(
-                        {"team": lt, "count": count, "label": label, "div_rank": div_rank}
+                        {"team": lt, "count": count, "label": label, "team_rank": _team_rank(lt)}
                     )
 
-                # Determine committed team (and its division rank) for this league
+                # Determine committed team for this league (best team where threshold is met).
+                # team_matrix is ordered by Team.name; sort by team_rank for the scan.
                 committed_team_id = None
                 committed_rank = None
                 committed_team = None
@@ -1950,15 +1931,13 @@ def create_app(config=None):
                     committed_team = existing_commitment.team
                     committed_team_id = existing_commitment.team_id
                     ct = existing_commitment.team
-                    committed_rank = (
-                        _division_rank(ct.division.name) if (ct and ct.division) else float("inf")
-                    )
+                    committed_rank = _team_rank(ct) if ct else (float("inf"), float("inf"))
                 elif info["commitment_threshold"]:
-                    for entry in team_matrix:
+                    for entry in sorted(team_matrix, key=lambda e: e["team_rank"]):
                         if entry["count"] >= info["commitment_threshold"]:
                             committed_team = entry["team"]
                             committed_team_id = entry["team"].id
-                            committed_rank = entry["div_rank"]
+                            committed_rank = entry["team_rank"]
                             break
                 info["committed_team"] = committed_team
 
@@ -1967,7 +1946,7 @@ def create_app(config=None):
                         entry["state"] = "available"
                     elif entry["team"].id == committed_team_id:
                         entry["state"] = "committed"
-                    elif entry["div_rank"] > committed_rank:
+                    elif entry["team_rank"] >= committed_rank:
                         entry["state"] = "blocked"
                     else:
                         entry["state"] = "eligible"
@@ -2599,25 +2578,17 @@ def create_app(config=None):
                                             "for the season!"
                                         )
                                     elif existing_commitment.team_id != team.id:
-                                        # Upgrade commitment if this team is in a higher division.
+                                        # Upgrade commitment if this team is higher in hierarchy.
                                         existing_rank = (
-                                            _division_rank(existing_commitment.team.division.name)
-                                            if (
-                                                existing_commitment.team
-                                                and existing_commitment.team.division
-                                            )
-                                            else float("inf")
+                                            _team_rank(existing_commitment.team)
+                                            if existing_commitment.team
+                                            else (float("inf"), float("inf"))
                                         )
-                                        new_rank = (
-                                            _division_rank(team.division.name)
-                                            if team.division
-                                            else float("inf")
-                                        )
-                                        if new_rank < existing_rank:
+                                        if _team_rank(team) < existing_rank:
                                             existing_commitment.team_id = team.id
                                             eligibility_warnings.append(
                                                 f"✅ {player_name} commitment upgraded to "
-                                                f"{team.name} — now tied to {team.division.name}."
+                                                f"{team.name} — now tied to {team.name}."
                                             )
 
                         db.session.commit()

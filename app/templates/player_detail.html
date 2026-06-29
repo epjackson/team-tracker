@@ -149,9 +149,9 @@
                             <div class="text-center" style="min-width:1.8rem;">
                                 <div style="font-size:0.7rem; line-height:1.2;" class="text-muted">R{{ r }}</div>
                                 {% if r in info.early_rounds_played %}
-                                <span class="badge bg-primary" title="Played for {{ info.early_rounds_played[r] }}">&#10003;</span>
+                                <span class="badge bg-primary">&#10003;</span>
                                 {% elif r in info.early_rounds_squad %}
-                                <span class="badge bg-info text-dark" title="Selected for {{ info.early_rounds_squad[r] }}">&#10003;</span>
+                                <span class="badge bg-info text-dark">&#10003;</span>
                                 {% else %}
                                 <span class="badge bg-secondary opacity-25">&ndash;</span>
                                 {% endif %}
@@ -163,12 +163,7 @@
                         {% if info.team_matrix %}
                         <div class="d-flex gap-2 justify-content-center flex-wrap">
                             {% for entry in info.team_matrix %}
-                            <div class="text-center" style="min-width:1.8rem;"
-                                 {% if entry.state == 'blocked' %}
-                                 data-bs-toggle="tooltip"
-                                 data-bs-placement="top"
-                                 title="Ineligible"
-                                 {% endif %}>
+                            <div class="text-center" style="min-width:1.8rem;">
                                 <div style="font-size:0.7rem; line-height:1.2;"
                                      class="{% if entry.state == 'blocked' %}text-muted opacity-25{% else %}text-muted{% endif %}">
                                     {% if entry.state == 'blocked' %}<s>{{ entry.label }}</s>{% else %}{{ entry.label }}{% endif %}
