@@ -16,6 +16,8 @@
     .today-label { font-weight: 700; color: #0d6efd; letter-spacing: 0.03em; }
     .fixture-item:hover { background-color: #f8f9fa; }
     .fixture-item:last-child { border-bottom: none !important; }
+    .fixture-pairs-pending { background-color: rgba(255, 193, 7, 0.08); }
+    .fixture-pairs-pending:hover { background-color: rgba(255, 193, 7, 0.15) !important; }
     .score-vs { font-weight: 700; color: #adb5bd; font-size: 0.95rem; letter-spacing: 1px; }
 .fixture-team { flex: 1 1 0; min-width: 0; }
     .fixture-score-col .score-badge { min-width: 1.8rem; display: inline-block; text-align: center; }
@@ -126,7 +128,7 @@
                     or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none)
                     or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
                 {% set _round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none, _eff_league.round5_start_date if _eff_league else none, _eff_league.round9_start_date if _eff_league else none) %}
-                <div class="fixture-item d-flex align-items-center px-3 py-3 border-bottom"
+                <div class="fixture-item d-flex align-items-center px-3 py-3 border-bottom{% if fixture.id in fixtures_missing_rubber_scores %} fixture-pairs-pending{% endif %}"
                      data-league-id="{{ _eff_league.id if _eff_league else '' }}"
                      data-home-team-id="{{ fixture.home_team_id or '' }}"
                      data-away-team-id="{{ fixture.away_team_id or '' }}"
@@ -166,7 +168,11 @@
                             <span class="score-badge score-away"><i class="bi bi-stopwatch"></i></span>
                             {% else %}
                             <span class="score-badge score-home">{{ fixture.home_score }}</span>
+                            {% if fixture.id in fixtures_missing_rubber_scores %}
+                            <i class="bi bi-exclamation-triangle text-warning mx-1" title="Match score recorded but pair scores not yet entered"></i>
+                            {% else %}
                             <span class="mx-1 text-muted fw-bold">–</span>
+                            {% endif %}
                             <span class="score-badge score-away">{{ fixture.away_score }}</span>
                             {% endif %}
                             <div class="wl-badge-wrap d-none mt-1"><span class="wl-badge badge" style="font-size:0.65rem;font-weight:700;letter-spacing:0.05em"></span></div>

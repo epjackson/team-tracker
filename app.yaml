@@ -30,3 +30,6 @@ env_variables:
   # Injected at deploy time from Secret Manager by deploy.sh
   FIREBASE_AUTH_DOMAIN: ""
   # Defaults to {project-id}.firebaseapp.com if left blank
+  GCS_SOURCE_BUCKET: ""
+  # Source bucket for startup DB download. Injected by deploy.sh for dev env
+  # so dev always reads the latest production snapshot. Empty = use own bucket.

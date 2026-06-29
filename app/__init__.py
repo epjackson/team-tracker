@@ -22,7 +22,7 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
 
-from app.gcs_sync import get_secret, register_commit_sync
+from app.gcs_sync import get_maintenance_info, get_secret, register_commit_sync
 
 from .models import (
     AppSetting,
@@ -41,6 +41,7 @@ from .models import (
     Team,
     TeamCaptain,
     _division_rank,
+    _team_rank,
     check_player_eligibility,
     check_week_conflict,
     db,
@@ -246,7 +247,7 @@ def _migrate_captain_users(db):
 
 
 def _migrate_login_events(db):
-    """Create login_events table if missing."""
+    """Create login_events table if missing; add logout_reason column if absent."""
     inspector = sa_inspect(db.engine)
     if not inspector.has_table("login_events"):
         with db.engine.begin() as conn:
@@ -259,11 +260,28 @@ def _migrate_login_events(db):
                         email VARCHAR(200) NOT NULL,
                         role VARCHAR(20) NOT NULL,
                         logged_in_at DATETIME NOT NULL,
-                        logged_out_at DATETIME
+                        logged_out_at DATETIME,
+                        logout_reason VARCHAR(20)
                     )
                     """
                 )
             )
+    else:
+        cols = {c["name"] for c in inspector.get_columns("login_events")}
+        if "logout_reason" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE login_events ADD COLUMN logout_reason VARCHAR(20)"))
+
+
+def _migrate_fixture_walkover_winner(db):
+    """Add walkover_winner column to fixtures table if missing."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("fixtures"):
+        return
+    existing = {c["name"] for c in inspector.get_columns("fixtures")}
+    if "walkover_winner" not in existing:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE fixtures ADD COLUMN walkover_winner VARCHAR(10)"))
 
 
 def _touch_scores_updated():
@@ -314,6 +332,7 @@ def create_app(config=None):
         _migrate_team_match_fees_enabled(db)
         _migrate_captain_users(db)
         _migrate_login_events(db)
+        _migrate_fixture_walkover_winner(db)
 
     app.jinja_env.globals["fixture_round_label"] = fixture_round_label
 
@@ -379,6 +398,7 @@ def create_app(config=None):
                         )
                         if _ev:
                             _ev.logged_out_at = now.replace(tzinfo=None)
+                            _ev.logout_reason = "timeout"
                             db.session.commit()
                     session.clear()
                     _active_session["nonce"] = None
@@ -430,6 +450,7 @@ def create_app(config=None):
             "is_admin": is_admin,
             "user_role": role,
             "captain_team_ids": captain_team_ids,
+            "maintenance_info": get_maintenance_info(),
         }
 
     # ── Permission helpers ───────────────────────────────────────────────
@@ -610,6 +631,7 @@ def create_app(config=None):
             )
             if _ev:
                 _ev.logged_out_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                _ev.logout_reason = "manual"
                 db.session.commit()
         session.clear()
         _active_session["nonce"] = None
@@ -651,7 +673,7 @@ def create_app(config=None):
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         for e in events:
             if e.logged_out_at:
-                status = "signed_out"
+                status = "signed_out" if e.logout_reason == "manual" else "timed_out"
                 duration = _fmt_duration((e.logged_out_at - e.logged_in_at).total_seconds())
             elif e.uid == active_uid:
                 status = "active"
@@ -1108,55 +1130,15 @@ def create_app(config=None):
                             }
                         else:
                             ct = existing.team
-                            ct_div = ct.division if ct else None
-                            t_div = team.division
-                            if ct_div and t_div:
-                                ct_rank = _division_rank(ct_div.name)
-                                t_rank = _division_rank(t_div.name)
-                                if t_rank > ct_rank:
-                                    result[_p.id] = {
-                                        "would_commit": False,
-                                        "commitment_info": None,
-                                        "ineligible_reason": (f"Tied to {ct.name} ({ct_div.name})"),
-                                    }
-                                else:
-                                    result[_p.id] = {
-                                        "would_commit": False,
-                                        "commitment_info": None,
-                                        "ineligible_reason": None,
-                                    }
-                            else:
-                                result[_p.id] = {
-                                    "would_commit": False,
-                                    "commitment_info": None,
-                                    "ineligible_reason": (
-                                        f"Tied to " f"{ct.name if ct else 'another team'}"
-                                    ),
-                                }
-                    elif _p.id in _implicit_commit_by_player:
-                        # Player has hit the threshold via match results but no formal record yet.
-                        imp_tid = _implicit_commit_by_player[_p.id]
-                        imp_team = _league_teams_by_id.get(imp_tid)
-                        if imp_tid == team.id:
-                            result[_p.id] = {
-                                "would_commit": False,
-                                "commitment_info": team.name,
-                                "ineligible_reason": None,
-                            }
-                        else:
-                            ct_div = imp_team.division if imp_team else None
-                            t_div = team.division
-                            if ct_div and t_div:
-                                ct_rank = _division_rank(ct_div.name)
-                                t_rank = _division_rank(t_div.name)
-                                if t_rank > ct_rank:
+                            if ct:
+                                if _team_rank(team) >= _team_rank(ct):
+                                    ct_div = ct.division
                                     result[_p.id] = {
                                         "would_commit": False,
                                         "commitment_info": None,
                                         "ineligible_reason": (
-                                            f"Tied to {imp_team.name} ({ct_div.name})"
-                                            if imp_team
-                                            else "Tied to another team"
+                                            f"Tied to {ct.name}"
+                                            + (f" ({ct_div.name})" if ct_div else "")
                                         ),
                                     }
                                 else:
@@ -1169,11 +1151,34 @@ def create_app(config=None):
                                 result[_p.id] = {
                                     "would_commit": False,
                                     "commitment_info": None,
+                                    "ineligible_reason": "Tied to another team",
+                                }
+                    elif _p.id in _implicit_commit_by_player:
+                        # Player has hit the threshold via match results but no formal record yet.
+                        imp_tid = _implicit_commit_by_player[_p.id]
+                        imp_team = _league_teams_by_id.get(imp_tid)
+                        if imp_tid == team.id:
+                            result[_p.id] = {
+                                "would_commit": False,
+                                "commitment_info": team.name,
+                                "ineligible_reason": None,
+                            }
+                        else:
+                            if imp_team and _team_rank(team) >= _team_rank(imp_team):
+                                ct_div = imp_team.division
+                                result[_p.id] = {
+                                    "would_commit": False,
+                                    "commitment_info": None,
                                     "ineligible_reason": (
                                         f"Tied to {imp_team.name}"
-                                        if imp_team
-                                        else "Tied to another team"
+                                        + (f" ({ct_div.name})" if ct_div else "")
                                     ),
+                                }
+                            else:
+                                result[_p.id] = {
+                                    "would_commit": False,
+                                    "commitment_info": None,
+                                    "ineligible_reason": None,
                                 }
                     elif _commit_threshold > 0:
                         cur = _fix_counts.get((_p.id, team.id), 0)
@@ -1524,7 +1529,7 @@ def create_app(config=None):
             league_team_infos = []
             for division in divisions:
                 div_rank = _division_rank(division.name)
-                for team in division.teams.all():
+                for team in sorted(division.teams.all(), key=_team_rank):
                     info = {
                         "id": team.id,
                         "name": team.name,
@@ -1533,6 +1538,7 @@ def create_app(config=None):
                         "league_gender": league_gender,
                         "division_name": division.name,
                         "division_rank": div_rank,
+                        "team_rank": _team_rank(team),
                         "threshold": threshold,
                     }
                     league_team_infos.append(info)
@@ -1601,44 +1607,40 @@ def create_app(config=None):
                         or 0
                     )
 
-                # Determine the effective committed team: highest-division team where
+                # Determine the effective committed team: highest-ranked team where
                 # the player has either a formal commitment or has hit the count threshold.
-                # league_teams is sorted by division rank ascending (Div 1 first), so the
-                # first count-based hit is always the highest available division.
+                # league_teams is sorted by team_rank ascending (best team first).
                 committed_team_id = None
                 committed_rank = None
-                committed_division_name = None
+                committed_team_name = None
 
-                # Count-based scan (highest division first).
+                # Count-based scan (best team first).
                 for ti in league_teams:
                     if team_counts.get(ti["id"], 0) >= threshold:
                         committed_team_id = ti["id"]
-                        committed_rank = ti["division_rank"]
-                        committed_division_name = ti["division_name"]
+                        committed_rank = ti["team_rank"]
+                        committed_team_name = ti["name"]
                         break
 
-                # Formal record: use if it's in a higher division than the count-based result.
+                # Formal record: use if it's higher in hierarchy than the count-based result.
                 existing = commitments_map.get((player_id, league_id))
                 if existing:
                     ct = existing.team
-                    formal_rank = (
-                        _division_rank(ct.division.name) if (ct and ct.division) else float("inf")
-                    )
+                    formal_rank = _team_rank(ct) if ct else (float("inf"), float("inf"))
                     if committed_rank is None or formal_rank < committed_rank:
                         committed_team_id = existing.team_id
                         committed_rank = formal_rank
-                        committed_division_name = ct.division.name if (ct and ct.division) else None
+                        committed_team_name = ct.name if ct else None
 
                 # Assign state per team, matching player_detail logic exactly.
                 for ti in league_teams:
                     team_id = ti["id"]
                     count = team_counts.get(team_id, 0)
-                    div_rank = ti["division_rank"]
                     if committed_team_id is None:
                         state = "eligible"
                     elif team_id == committed_team_id:
                         state = "committed"
-                    elif div_rank > committed_rank:
+                    elif ti["team_rank"] >= committed_rank:
                         state = "blocked"
                     else:
                         state = "eligible"
@@ -1646,7 +1648,7 @@ def create_app(config=None):
                         "state": state,
                         "count": count,
                         "threshold": threshold,
-                        "committed_division_name": committed_division_name,
+                        "committed_team_name": committed_team_name,
                     }
 
         return render_template(
@@ -1913,12 +1915,12 @@ def create_app(config=None):
                     )
                     m = re.search(r"\b([A-Z])\b", lt.name)
                     label = m.group(1) if m else lt.name.split()[-1]
-                    div_rank = _division_rank(lt.division.name) if lt.division else float("inf")
                     team_matrix.append(
-                        {"team": lt, "count": count, "label": label, "div_rank": div_rank}
+                        {"team": lt, "count": count, "label": label, "team_rank": _team_rank(lt)}
                     )
 
-                # Determine committed team (and its division rank) for this league
+                # Determine committed team for this league (best team where threshold is met).
+                # team_matrix is ordered by Team.name; sort by team_rank for the scan.
                 committed_team_id = None
                 committed_rank = None
                 committed_team = None
@@ -1929,15 +1931,13 @@ def create_app(config=None):
                     committed_team = existing_commitment.team
                     committed_team_id = existing_commitment.team_id
                     ct = existing_commitment.team
-                    committed_rank = (
-                        _division_rank(ct.division.name) if (ct and ct.division) else float("inf")
-                    )
+                    committed_rank = _team_rank(ct) if ct else (float("inf"), float("inf"))
                 elif info["commitment_threshold"]:
-                    for entry in team_matrix:
+                    for entry in sorted(team_matrix, key=lambda e: e["team_rank"]):
                         if entry["count"] >= info["commitment_threshold"]:
                             committed_team = entry["team"]
                             committed_team_id = entry["team"].id
-                            committed_rank = entry["div_rank"]
+                            committed_rank = entry["team_rank"]
                             break
                 info["committed_team"] = committed_team
 
@@ -1946,7 +1946,7 @@ def create_app(config=None):
                         entry["state"] = "available"
                     elif entry["team"].id == committed_team_id:
                         entry["state"] = "committed"
-                    elif entry["div_rank"] > committed_rank:
+                    elif entry["team_rank"] >= committed_rank:
                         entry["state"] = "blocked"
                     else:
                         entry["state"] = "eligible"
@@ -2578,25 +2578,17 @@ def create_app(config=None):
                                             "for the season!"
                                         )
                                     elif existing_commitment.team_id != team.id:
-                                        # Upgrade commitment if this team is in a higher division.
+                                        # Upgrade commitment if this team is higher in hierarchy.
                                         existing_rank = (
-                                            _division_rank(existing_commitment.team.division.name)
-                                            if (
-                                                existing_commitment.team
-                                                and existing_commitment.team.division
-                                            )
-                                            else float("inf")
+                                            _team_rank(existing_commitment.team)
+                                            if existing_commitment.team
+                                            else (float("inf"), float("inf"))
                                         )
-                                        new_rank = (
-                                            _division_rank(team.division.name)
-                                            if team.division
-                                            else float("inf")
-                                        )
-                                        if new_rank < existing_rank:
+                                        if _team_rank(team) < existing_rank:
                                             existing_commitment.team_id = team.id
                                             eligibility_warnings.append(
                                                 f"✅ {player_name} commitment upgraded to "
-                                                f"{team.name} — now tied to {team.division.name}."
+                                                f"{team.name} — now tied to {team.name}."
                                             )
 
                         db.session.commit()
@@ -2686,9 +2678,18 @@ def create_app(config=None):
             eff_league.round5_start_date if eff_league else None,
             eff_league.round9_start_date if eff_league else None,
         )
-        is_early_round = round_label in {"Round 1", "Round 2", "Round 3", "Round 4"}
+        _restriction = (
+            LeagueRestriction.query.filter_by(league_id=eff_league.id).first()
+            if eff_league
+            else None
+        )
+        _num_early = _restriction.early_season_weeks if _restriction else 0
+        _early_round_labels = {f"Round {r}" for r in range(1, _num_early + 1)}
+        is_early_round = round_label in _early_round_labels
 
-        apply_week_conflict = eff_league is not None
+        # Week conflict only enforced during early-season rounds; after that,
+        # players may appear for multiple teams in the same week.
+        apply_week_conflict = eff_league is not None and is_early_round
 
         squad_size = (
             eff_league.pairs_per_round * 2 if (eff_league and eff_league.pairs_per_round) else 6
@@ -3017,8 +3018,33 @@ def create_app(config=None):
             fixture.league_id = league_id if league_id else None
             fixture.home_team_id = request.form.get("home_team_id", type=int) or None
             fixture.away_team_id = request.form.get("away_team_id", type=int) or None
-            fixture.home_score = request.form.get("home_score", 0, type=int)
-            fixture.away_score = request.form.get("away_score", 0, type=int)
+
+            walkover_winner = request.form.get("walkover_winner") or None
+            if walkover_winner not in ("home", "away"):
+                walkover_winner = None
+            fixture.walkover_winner = walkover_winner
+
+            if walkover_winner:
+                wo_league = (
+                    fixture.league
+                    or (
+                        fixture.home_team.division.league
+                        if fixture.home_team and fixture.home_team.division
+                        else None
+                    )
+                    or (
+                        fixture.away_team.division.league
+                        if fixture.away_team and fixture.away_team.division
+                        else None
+                    )
+                )
+                wo_ppr = (wo_league.pairs_per_round or 2) if wo_league else 2
+                max_score = wo_ppr * 3 * 2 + 4
+                fixture.home_score = max_score if walkover_winner == "home" else 0
+                fixture.away_score = max_score if walkover_winner == "away" else 0
+            else:
+                fixture.home_score = request.form.get("home_score", 0, type=int)
+                fixture.away_score = request.form.get("away_score", 0, type=int)
 
             # Use manually supplied label if provided, otherwise recompute from league start date
             manual_label = request.form.get("round_label", "").strip()
@@ -3460,6 +3486,29 @@ def create_app(config=None):
         today = date.today()
         today_week_start = today - timedelta(days=(today.weekday() + 2) % 7)
 
+        # Fixtures that have at least one rubber with a score already entered
+        rubber_scored_ids = {
+            r[0]
+            for r in db.session.query(Rubber.fixture_id)
+            .filter(
+                db.or_(
+                    Rubber.home_set1.isnot(None),
+                    Rubber.set1_tie.is_(True),
+                    Rubber.set1_walkover.isnot(None),
+                )
+            )
+            .distinct()
+            .all()
+        }
+        # Fixtures with a match score but no rubber scores yet
+        fixtures_missing_rubber_scores = {
+            f.id
+            for f in fixtures
+            if (f.home_score or f.away_score)
+            and f.id not in rubber_scored_ids
+            and not f.walkover_winner
+        }
+
         return render_template(
             "fixtures.html",
             fixtures=fixtures,
@@ -3469,6 +3518,7 @@ def create_app(config=None):
             filter_teams=filter_teams,
             today=today,
             today_week_start=today_week_start,
+            fixtures_missing_rubber_scores=fixtures_missing_rubber_scores,
         )
 
     @app.route("/fixtures/bulk-assign-league", methods=["POST"])

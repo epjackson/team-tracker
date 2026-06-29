@@ -95,6 +95,19 @@
                         </select>
                         <div class="form-text">Leave as auto to derive from the league start date, or pick a round to override (e.g. for rearranged matches).</div>
                     </div>
+                    <div class="mb-3">
+                        <label for="edit_walkover_winner" class="form-label">Fixture Walkover</label>
+                        <select class="form-select" id="edit_walkover_winner" name="walkover_winner">
+                            <option value="">— No walkover —</option>
+                            <option value="home" {% if fixture.walkover_winner == 'home' %}selected{% endif %}>
+                                {{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or 'Home') }} win (walkover)
+                            </option>
+                            <option value="away" {% if fixture.walkover_winner == 'away' %}selected{% endif %}>
+                                {{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or 'Away') }} win (walkover)
+                            </option>
+                        </select>
+                        <div class="form-text">Automatically assigns the maximum points to the winning team and 0 to the other. Overrides the score fields below.</div>
+                    </div>
                     <div class="row g-3">
                         <div class="col">
                             <label for="home_score" class="form-label">
@@ -210,7 +223,15 @@
                 <small class="text-muted">Away</small>
             </div>
         </div>
-        {% if fixture.home_score == 0 and fixture.away_score == 0 %}
+        {% if fixture.walkover_winner %}
+        <div class="mt-3">
+            <span class="winner-badge {% if fixture.walkover_winner == 'home' %}winner-home{% else %}winner-away{% endif %}" style="font-size: 1rem; padding: 0.4rem 1rem;">
+                <i class="bi bi-flag me-1"></i>
+                {% if fixture.walkover_winner == 'home' %}{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or 'Home') }}{% else %}{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or 'Away') }}{% endif %}
+                Win (Walkover)
+            </span>
+        </div>
+        {% elif fixture.home_score == 0 and fixture.away_score == 0 %}
         <div class="mt-3">
             <span class="badge bg-secondary" style="font-size: 1rem; padding: 0.4rem 1rem; letter-spacing: .05em;">
                 <i class="bi bi-calendar-event me-1"></i>SCHEDULED
@@ -447,7 +468,16 @@
         {% endif %}
     </div>
     <div class="card-body">
-        {% if n_pairs > 0 %}
+        {% if fixture.walkover_winner %}
+        <div class="alert alert-secondary d-flex align-items-center gap-2 mb-0">
+            <i class="bi bi-flag fs-5"></i>
+            <span>
+                This fixture was recorded as a walkover —
+                <strong>{% if fixture.walkover_winner == 'home' %}{{ fixture.home_team.name if fixture.home_team else (fixture.home_team_name or 'Home') }}{% else %}{{ fixture.away_team.name if fixture.away_team else (fixture.away_team_name or 'Away') }}{% endif %}</strong>
+                win. No individual rubber results required.
+            </span>
+        </div>
+        {% elif n_pairs > 0 %}
         {% set away_perspective = both_yarm and not yarm_is_home %}
         <form id="rubber-form" method="POST" action="{{ url_for('save_rubbers', fixture_id=fixture.id) }}">
             <input type="hidden" name="rubber_count" value="{{ n_pairs }}">

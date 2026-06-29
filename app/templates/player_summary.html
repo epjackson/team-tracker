@@ -90,7 +90,7 @@ thead .elig-name-col {
                 </div>
                 <small class="text-muted d-flex align-items-center gap-3">
                     <span><span class="badge bg-transparent border border-success" style="font-size:0.6rem;">&nbsp;</span> / <span class="badge bg-success">2</span> Eligible</span>
-                    <span><span class="badge bg-warning text-dark">3</span> Tied to division</span>
+                    <span><span class="badge bg-warning text-dark">3</span> Tied</span>
                     <span><span class="badge bg-secondary opacity-25"><s>3</s></span> Blocked</span>
                 </small>
             </div>
@@ -141,27 +141,21 @@ thead .elig-name-col {
                             <td class="text-center{{ league_start_class }}"
                                 data-league-gender="{{ team.league_gender }}"
                                 data-team-id="{{ team.id }}"
-                                data-state="committed"
-                                data-bs-toggle="tooltip"
-                                title="Tied to {{ team.division_name }}">
+                                data-state="committed">
                                 <span class="badge bg-warning text-dark">{{ e.count }}</span>
                             </td>
                             {% elif e.state == 'blocked' %}
                             <td class="text-center{{ league_start_class }}"
                                 data-league-gender="{{ team.league_gender }}"
                                 data-team-id="{{ team.id }}"
-                                data-state="blocked"
-                                data-bs-toggle="tooltip"
-                                title="Ineligible — tied to {{ e.committed_division_name }}">
+                                data-state="blocked">
                                 <span class="badge bg-secondary opacity-25"><s>{{ e.count }}</s></span>
                             </td>
                             {% else %}{# eligible #}
                             <td class="text-center{{ league_start_class }}"
                                 data-league-gender="{{ team.league_gender }}"
                                 data-team-id="{{ team.id }}"
-                                data-state="eligible"
-                                data-bs-toggle="tooltip"
-                                title="Eligible">
+                                data-state="eligible">
                                 {% if e.count > 0 %}
                                 <span class="badge bg-success">{{ e.count }}</span>
                                 {% else %}

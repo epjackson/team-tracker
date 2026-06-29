@@ -1,11 +1,16 @@
 """GCS storage sync for App Engine database persistence."""
 
+import json
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from google.cloud import storage
 
 _commit_sync_registered = False
+_maintenance_cache = (0.0, None)  # (fetched_monotonic, data_or_none)
+_MAINTENANCE_TTL = 60  # seconds between GCS fetches
 
 
 def get_secret(secret_id):
@@ -47,6 +52,22 @@ def get_gcs_config():
     return None, None
 
 
+def get_gcs_source_config():
+    """Get GCS configuration for startup downloads (read source, may differ from write target).
+
+    Non-production environments set GCS_SOURCE_BUCKET to always read from the
+    production bucket while still writing to their own project bucket.
+
+    Returns:
+        tuple: (bucket_name, db_blob_name) or (None, None) if not configured
+    """
+    db_blob_name = os.environ.get("GCS_DB_BLOB_NAME", "tennis.db")
+    source_bucket = os.environ.get("GCS_SOURCE_BUCKET")
+    if source_bucket:
+        return source_bucket, db_blob_name
+    return get_gcs_config()
+
+
 def download_testing_db(local_testing_db_path):
     """Download tennis.db from GCS and save it as a local testing database.
 
@@ -61,7 +82,7 @@ def download_testing_db(local_testing_db_path):
     Returns:
         bool: True if the file was downloaded successfully, False otherwise.
     """
-    bucket_name, db_blob_name = get_gcs_config()
+    bucket_name, db_blob_name = get_gcs_source_config()
 
     if not bucket_name:
         print("ℹ GCS not configured — skipping local testing database download.")
@@ -98,7 +119,7 @@ def download_db_from_gcs(local_db_path):
     Args:
         local_db_path (str): Local path to write the database file (typically /tmp/tennis.db)
     """
-    bucket_name, db_blob_name = get_gcs_config()
+    bucket_name, db_blob_name = get_gcs_source_config()
 
     if not bucket_name:
         return  # GCS not configured
@@ -198,3 +219,36 @@ def register_commit_sync(app, db):
     event.listen(db.session, "after_commit", lambda _: upload_db_to_gcs(local_db_path))
 
     _commit_sync_registered = True
+
+
+def get_maintenance_info():
+    """Return maintenance.json contents from GCS, or None if absent or past.
+
+    Caches the GCS fetch for 60 seconds. Returns None once the scheduled
+    migrate_at time has passed so the banner disappears automatically.
+    """
+    global _maintenance_cache
+    fetched_at, data = _maintenance_cache
+
+    if time.monotonic() - fetched_at >= _MAINTENANCE_TTL:
+        bucket_name, _ = get_gcs_config()
+        if not bucket_name:
+            return None
+        try:
+            client = storage.Client()
+            blob = client.bucket(bucket_name).blob("maintenance.json")
+            data = json.loads(blob.download_as_text()) if blob.exists() else None
+        except Exception as e:
+            print(f"⚠ Failed to read maintenance.json: {e}")
+            data = None
+        _maintenance_cache = (time.monotonic(), data)
+
+    if data is None:
+        return None
+    try:
+        migrate_at = datetime.fromisoformat(data["migrate_at"])
+        if datetime.now(timezone.utc) >= migrate_at:
+            return None
+    except (KeyError, ValueError):
+        return None
+    return data

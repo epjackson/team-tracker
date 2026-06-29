@@ -1,5 +1,6 @@
 """Database models for the tennis team recording app."""
 
+import re
 from datetime import date, datetime, timedelta
 
 from flask_sqlalchemy import SQLAlchemy
@@ -267,6 +268,7 @@ class Fixture(db.Model):
     away_team_name = db.Column(db.String(200), nullable=True)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
+    walkover_winner = db.Column(db.String(10), nullable=True)  # 'home', 'away', or None
     round_label = db.Column(db.String(30), nullable=True)
     source_image = db.Column(db.String(512), nullable=True)  # path to uploaded scoresheet image
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -457,6 +459,7 @@ class LoginEvent(db.Model):
     role = db.Column(db.String(20), nullable=False)
     logged_in_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     logged_out_at = db.Column(db.DateTime, nullable=True)
+    logout_reason = db.Column(db.String(20), nullable=True)  # 'manual' | 'timeout'
 
     def __repr__(self):
         """Return string representation of LoginEvent."""
@@ -528,13 +531,25 @@ def _division_rank(division_name: str) -> float:
         return float("inf")
 
 
+def _team_rank(team) -> tuple:
+    """Return (division_rank, letter_rank) for hierarchical comparison.
+
+    Lower tuple = higher in hierarchy. Division rank is primary; within a division,
+    team letter A=0 < B=1 < ... < F=5 is secondary (A is the highest-ranked team).
+    """
+    div_rank = _division_rank(team.division.name) if team.division else float("inf")
+    m = re.search(r"\b([A-Z])\b", team.name) if team.name else None
+    letter_rank = ord(m.group(1)) - ord("A") if m else 0
+    return (div_rank, letter_rank)
+
+
 def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> dict:
     """Check whether a player is eligible to play for a team in a league.
 
     Once a player reaches the team_commitment_threshold for a team, they are tied to
-    that team's division tier. They may still play for other teams in the same division
-    and may move up to a higher-ranked division, but cannot drop to a lower-ranked
-    division (higher division number, e.g. committed in Division 3, blocked from Division 4+).
+    that specific team. They may move up to a higher-ranked division (lower division
+    number) but cannot play for any team in the same or a lower-ranked division
+    (e.g. committed to a Division 3 team, blocked from all other Division 3 and Division 4+ teams).
 
     Returns a dict with:
         - eligible (bool): whether the player can play
@@ -573,8 +588,8 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
     if restriction and restriction.team_commitment_threshold > 0:
         commitment_threshold = restriction.team_commitment_threshold
         restriction_description = restriction.description or (
-            f"Player tied to division after {commitment_threshold} fixtures; "
-            "cannot play in the same or a lower division"
+            f"Player tied to a team after {commitment_threshold} fixtures; "
+            "can only play for teams in a higher division"
         )
 
         existing_commitment = PlayerTeamCommitment.query.filter_by(
@@ -587,24 +602,22 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
         # has since crossed the threshold for a Div 1 team).
         effective_committed_team = existing_commitment.team if existing_commitment else None
         effective_committed_rank = (
-            _division_rank(effective_committed_team.division.name)
-            if (effective_committed_team and effective_committed_team.division)
-            else float("inf")
+            _team_rank(effective_committed_team)
+            if effective_committed_team
+            else (float("inf"), float("inf"))
         )
 
-        # Scan higher divisions for a count-based commitment that outranks the formal one.
+        # Scan for a count-based commitment that outranks the formal one (higher in hierarchy).
         all_league_teams = (
             Team.query.join(Division, Team.division_id == Division.id)
             .filter(Division.league_id == league_id)
             .all()
         )
-        all_league_teams.sort(
-            key=lambda t: _division_rank(t.division.name) if t.division else float("inf")
-        )
+        all_league_teams.sort(key=_team_rank)
         for lt in all_league_teams:
-            lt_rank = _division_rank(lt.division.name) if lt.division else float("inf")
+            lt_rank = _team_rank(lt)
             if lt_rank >= effective_committed_rank:
-                break  # Only care about divisions higher than the current effective commitment
+                break  # Only care about teams strictly higher than the current commitment
             lt_count = (
                 db.session.query(func.count(func.distinct(Fixture.id)))
                 .join(Rubber, Fixture.id == Rubber.fixture_id)
@@ -633,17 +646,16 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
             ):
                 commitment_info = effective_committed_team.name
             elif effective_committed_team.id != team_id:
-                committed_div = effective_committed_team.division
                 target_team = Team.query.get(team_id)
-                target_div = target_team.division if target_team else None
-
-                if committed_div and target_div:
-                    target_rank = _division_rank(target_div.name)
-                    if target_rank > effective_committed_rank:
+                if target_team:
+                    target_rank = _team_rank(target_team)
+                    if target_rank >= effective_committed_rank:
                         committed_to_different_team = True
+                        committed_div = effective_committed_team.division
                         restriction_description = (
-                            f"Tied to {effective_committed_team.name} ({committed_div.name}) — "
-                            "cannot drop to a lower division."
+                            f"Tied to {effective_committed_team.name}"
+                            + (f" ({committed_div.name})" if committed_div else "")
+                            + " — can only play for hierarchically higher teams."
                         )
                 else:
                     committed_to_different_team = True
