@@ -22,7 +22,7 @@ from sqlalchemy import func as sqlfunc
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
 
-from app.gcs_sync import get_secret, register_commit_sync
+from app.gcs_sync import get_maintenance_info, get_secret, register_commit_sync
 
 from .models import (
     AppSetting,
@@ -246,7 +246,7 @@ def _migrate_captain_users(db):
 
 
 def _migrate_login_events(db):
-    """Create login_events table if missing."""
+    """Create login_events table if missing; add logout_reason column if absent."""
     inspector = sa_inspect(db.engine)
     if not inspector.has_table("login_events"):
         with db.engine.begin() as conn:
@@ -259,11 +259,28 @@ def _migrate_login_events(db):
                         email VARCHAR(200) NOT NULL,
                         role VARCHAR(20) NOT NULL,
                         logged_in_at DATETIME NOT NULL,
-                        logged_out_at DATETIME
+                        logged_out_at DATETIME,
+                        logout_reason VARCHAR(20)
                     )
                     """
                 )
             )
+    else:
+        cols = {c["name"] for c in inspector.get_columns("login_events")}
+        if "logout_reason" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE login_events ADD COLUMN logout_reason VARCHAR(20)"))
+
+
+def _migrate_fixture_walkover_winner(db):
+    """Add walkover_winner column to fixtures table if missing."""
+    inspector = sa_inspect(db.engine)
+    if not inspector.has_table("fixtures"):
+        return
+    existing = {c["name"] for c in inspector.get_columns("fixtures")}
+    if "walkover_winner" not in existing:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE fixtures ADD COLUMN walkover_winner VARCHAR(10)"))
 
 
 def _touch_scores_updated():
@@ -314,6 +331,7 @@ def create_app(config=None):
         _migrate_team_match_fees_enabled(db)
         _migrate_captain_users(db)
         _migrate_login_events(db)
+        _migrate_fixture_walkover_winner(db)
 
     app.jinja_env.globals["fixture_round_label"] = fixture_round_label
 
@@ -379,6 +397,7 @@ def create_app(config=None):
                         )
                         if _ev:
                             _ev.logged_out_at = now.replace(tzinfo=None)
+                            _ev.logout_reason = "timeout"
                             db.session.commit()
                     session.clear()
                     _active_session["nonce"] = None
@@ -430,6 +449,7 @@ def create_app(config=None):
             "is_admin": is_admin,
             "user_role": role,
             "captain_team_ids": captain_team_ids,
+            "maintenance_info": get_maintenance_info(),
         }
 
     # ── Permission helpers ───────────────────────────────────────────────
@@ -610,6 +630,7 @@ def create_app(config=None):
             )
             if _ev:
                 _ev.logged_out_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                _ev.logout_reason = "manual"
                 db.session.commit()
         session.clear()
         _active_session["nonce"] = None
@@ -651,7 +672,7 @@ def create_app(config=None):
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         for e in events:
             if e.logged_out_at:
-                status = "signed_out"
+                status = "signed_out" if e.logout_reason == "manual" else "timed_out"
                 duration = _fmt_duration((e.logged_out_at - e.logged_in_at).total_seconds())
             elif e.uid == active_uid:
                 status = "active"
@@ -2686,9 +2707,18 @@ def create_app(config=None):
             eff_league.round5_start_date if eff_league else None,
             eff_league.round9_start_date if eff_league else None,
         )
-        is_early_round = round_label in {"Round 1", "Round 2", "Round 3", "Round 4"}
+        _restriction = (
+            LeagueRestriction.query.filter_by(league_id=eff_league.id).first()
+            if eff_league
+            else None
+        )
+        _num_early = _restriction.early_season_weeks if _restriction else 0
+        _early_round_labels = {f"Round {r}" for r in range(1, _num_early + 1)}
+        is_early_round = round_label in _early_round_labels
 
-        apply_week_conflict = eff_league is not None
+        # Week conflict only enforced during early-season rounds; after that,
+        # players may appear for multiple teams in the same week.
+        apply_week_conflict = eff_league is not None and is_early_round
 
         squad_size = (
             eff_league.pairs_per_round * 2 if (eff_league and eff_league.pairs_per_round) else 6
@@ -3017,8 +3047,33 @@ def create_app(config=None):
             fixture.league_id = league_id if league_id else None
             fixture.home_team_id = request.form.get("home_team_id", type=int) or None
             fixture.away_team_id = request.form.get("away_team_id", type=int) or None
-            fixture.home_score = request.form.get("home_score", 0, type=int)
-            fixture.away_score = request.form.get("away_score", 0, type=int)
+
+            walkover_winner = request.form.get("walkover_winner") or None
+            if walkover_winner not in ("home", "away"):
+                walkover_winner = None
+            fixture.walkover_winner = walkover_winner
+
+            if walkover_winner:
+                wo_league = (
+                    fixture.league
+                    or (
+                        fixture.home_team.division.league
+                        if fixture.home_team and fixture.home_team.division
+                        else None
+                    )
+                    or (
+                        fixture.away_team.division.league
+                        if fixture.away_team and fixture.away_team.division
+                        else None
+                    )
+                )
+                wo_ppr = (wo_league.pairs_per_round or 2) if wo_league else 2
+                max_score = wo_ppr * 3 * 2 + 4
+                fixture.home_score = max_score if walkover_winner == "home" else 0
+                fixture.away_score = max_score if walkover_winner == "away" else 0
+            else:
+                fixture.home_score = request.form.get("home_score", 0, type=int)
+                fixture.away_score = request.form.get("away_score", 0, type=int)
 
             # Use manually supplied label if provided, otherwise recompute from league start date
             manual_label = request.form.get("round_label", "").strip()
@@ -3460,6 +3515,29 @@ def create_app(config=None):
         today = date.today()
         today_week_start = today - timedelta(days=(today.weekday() + 2) % 7)
 
+        # Fixtures that have at least one rubber with a score already entered
+        rubber_scored_ids = {
+            r[0]
+            for r in db.session.query(Rubber.fixture_id)
+            .filter(
+                db.or_(
+                    Rubber.home_set1.isnot(None),
+                    Rubber.set1_tie.is_(True),
+                    Rubber.set1_walkover.isnot(None),
+                )
+            )
+            .distinct()
+            .all()
+        }
+        # Fixtures with a match score but no rubber scores yet
+        fixtures_missing_rubber_scores = {
+            f.id
+            for f in fixtures
+            if (f.home_score or f.away_score)
+            and f.id not in rubber_scored_ids
+            and not f.walkover_winner
+        }
+
         return render_template(
             "fixtures.html",
             fixtures=fixtures,
@@ -3469,6 +3547,7 @@ def create_app(config=None):
             filter_teams=filter_teams,
             today=today,
             today_week_start=today_week_start,
+            fixtures_missing_rubber_scores=fixtures_missing_rubber_scores,
         )
 
     @app.route("/fixtures/bulk-assign-league", methods=["POST"])

@@ -267,6 +267,7 @@ class Fixture(db.Model):
     away_team_name = db.Column(db.String(200), nullable=True)
     home_score = db.Column(db.Integer, default=0)
     away_score = db.Column(db.Integer, default=0)
+    walkover_winner = db.Column(db.String(10), nullable=True)  # 'home', 'away', or None
     round_label = db.Column(db.String(30), nullable=True)
     source_image = db.Column(db.String(512), nullable=True)  # path to uploaded scoresheet image
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -457,6 +458,7 @@ class LoginEvent(db.Model):
     role = db.Column(db.String(20), nullable=False)
     logged_in_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     logged_out_at = db.Column(db.DateTime, nullable=True)
+    logout_reason = db.Column(db.String(20), nullable=True)  # 'manual' | 'timeout'
 
     def __repr__(self):
         """Return string representation of LoginEvent."""

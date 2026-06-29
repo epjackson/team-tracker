@@ -248,6 +248,22 @@
         </div>
     </nav>
 
+    {% if maintenance_info %}
+    <div class="maintenance-banner py-2 px-3 d-flex align-items-center gap-2 flex-wrap" style="background:#fff3cd;border-bottom:2px solid #ffc107;font-size:0.92rem;">
+        <i class="bi bi-exclamation-triangle-fill text-warning fs-5"></i>
+        {% if session.get('user_email') %}
+        <span>
+            <strong>Scheduled update at {{ maintenance_info.display_time }}</strong>
+            &mdash; unsaved changes may be lost. Please
+            <a href="{{ url_for('auth_logout') }}" class="fw-bold text-dark">sign out</a>
+            before then to avoid disruption.
+        </span>
+        {% else %}
+        <span>Scheduled update at <strong>{{ maintenance_info.display_time }}</strong>.</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <div class="container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -308,8 +324,13 @@
         render();
         ticker = setInterval(tick, 1000);
 
-        ['keydown', 'click', 'scroll', 'touchstart'].forEach(function (evt) {
-            document.addEventListener(evt, reset, { passive: true });
+        // Reset only on deliberate user actions: form submits and nav/button clicks.
+        // Excludes scroll, focus, visibilitychange, and touchstart so returning to
+        // the tab or scrolling does not reset the countdown.
+        document.addEventListener('submit', reset);
+        document.addEventListener('click', function (e) {
+            const t = e.target.closest('a, button, [role="button"], [data-bs-toggle]');
+            if (t) reset();
         });
 
         const tooltipEl = document.getElementById('session-countdown');
