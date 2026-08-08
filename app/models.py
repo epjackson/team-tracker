@@ -546,10 +546,13 @@ def _team_rank(team) -> tuple:
 def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> dict:
     """Check whether a player is eligible to play for a team in a league.
 
-    Once a player reaches the team_commitment_threshold for a team, they are tied to
-    that specific team. They may move up to a higher-ranked division (lower division
-    number) but cannot play for any team in the same or a lower-ranked division
-    (e.g. committed to a Division 3 team, blocked from all other Division 3 and Division 4+ teams).
+    Once a player's *cumulative* fixtures for a team and every higher-ranked team
+    (better division, or better letter within a division) reach the
+    team_commitment_threshold, they are tied to that team. They may move up to a
+    higher-ranked division (lower division number) but cannot play for any team in
+    the same or a lower-ranked division (e.g. 1 fixture for team A plus 2 for team C
+    reaches a threshold of 3, tying the player to team C even though neither team
+    alone hit the threshold; they're then blocked from team D and below).
 
     Returns a dict with:
         - eligible (bool): whether the player can play
@@ -557,6 +560,7 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
         - commitment_threshold (int|None): the fixture threshold for team commitment
         - restriction_description (str|None): human-readable rule
         - committed_to_different_team (bool): ineligible due to divisional commitment
+        - effective_committed_team_id (int|None): id of the team the player is tied to
         - commitment_info (str|None): name of the committed team if already committed here
     """
     from sqlalchemy import func
@@ -584,6 +588,7 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
     restriction_description = None
     committed_to_different_team = False
     commitment_info = None
+    effective_committed_team = None
 
     if restriction and restriction.team_commitment_threshold > 0:
         commitment_threshold = restriction.team_commitment_threshold
@@ -596,28 +601,20 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
             player_id=player_id, league_id=league_id
         ).first()
 
-        # Determine the effective committed team: the highest-division team
-        # where the player either has a formal record or has hit the count threshold.
-        # This handles stale formal records (e.g. committed to Div 2 formally but
-        # has since crossed the threshold for a Div 1 team).
-        effective_committed_team = existing_commitment.team if existing_commitment else None
-        effective_committed_rank = (
-            _team_rank(effective_committed_team)
-            if effective_committed_team
-            else (float("inf"), float("inf"))
-        )
-
-        # Scan for a count-based commitment that outranks the formal one (higher in hierarchy).
+        # Determine the natural committed team: the most senior team (lowest
+        # division, then A before B, ...) such that the player's *cumulative*
+        # fixtures for that team and every higher-ranked team reach the threshold.
+        # e.g. 1 fixture for team A + 2 for team C = 3 cumulative through C, so a
+        # threshold of 3 ties the player to C even though no single team hit 3 alone.
         all_league_teams = (
             Team.query.join(Division, Team.division_id == Division.id)
             .filter(Division.league_id == league_id)
             .all()
         )
         all_league_teams.sort(key=_team_rank)
+        natural_committed_team = None
+        running_total = 0
         for lt in all_league_teams:
-            lt_rank = _team_rank(lt)
-            if lt_rank >= effective_committed_rank:
-                break  # Only care about teams strictly higher than the current commitment
             lt_count = (
                 db.session.query(func.count(func.distinct(Fixture.id)))
                 .join(Rubber, Fixture.id == Rubber.fixture_id)
@@ -633,10 +630,25 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
                 .scalar()
                 or 0
             )
-            if lt_count >= commitment_threshold:
-                effective_committed_team = lt
-                effective_committed_rank = lt_rank
+            running_total += lt_count
+            if running_total >= commitment_threshold:
+                natural_committed_team = lt
                 break
+
+        # The effective commitment is the more senior of the formal record and the
+        # naturally-derived one — this handles stale formal records (e.g. committed
+        # to Div 2 formally but has since crossed the threshold for a Div 1 team).
+        effective_committed_team = existing_commitment.team if existing_commitment else None
+        effective_committed_rank = (
+            _team_rank(effective_committed_team)
+            if effective_committed_team
+            else (float("inf"), float("inf"))
+        )
+        if natural_committed_team is not None:
+            natural_rank = _team_rank(natural_committed_team)
+            if natural_rank < effective_committed_rank:
+                effective_committed_team = natural_committed_team
+                effective_committed_rank = natural_rank
 
         if effective_committed_team:
             if (
@@ -672,6 +684,9 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
         "restriction_description": restriction_description,
         "committed_to_different_team": committed_to_different_team,
         "commitment_info": commitment_info,
+        "effective_committed_team_id": (
+            effective_committed_team.id if effective_committed_team else None
+        ),
     }
 
 
