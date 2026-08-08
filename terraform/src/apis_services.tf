@@ -6,7 +6,9 @@ locals {
         "firebase.googleapis.com",
         "iap.googleapis.com",
         "identitytoolkit.googleapis.com",
+        "run.googleapis.com",
         "secretmanager.googleapis.com",
+        "storage.googleapis.com",
     ]
 }
 

@@ -19,6 +19,4 @@ resource "google_secret_manager_secret" "app_secrets" {
             }
         }
     }
-
-    depends_on = [google_project_service.app_engine_reqd_apis]
 }

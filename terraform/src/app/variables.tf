@@ -14,13 +14,13 @@ variable "gcp_env" {
   type        = string
 }
 
-variable "iap_login_page_base_uri" {
-  description = "Base URL of the GCIP-IAP sign-in page, without query parameters (e.g. https://example.firebaseapp.com)."
-  type        = string
-}
-
 variable "firebase_api_key_secret_name" {
   description = "Secret Manager secret name holding the Firebase Web API key."
   type        = string
   default     = "firebase-api-key"
+}
+
+variable "gcip_login_page_base_uri" {
+  description = "The base URI for the GCIP login page."
+  type        = string
 }
