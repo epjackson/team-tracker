@@ -1,3 +1,7 @@
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
 # Read the Firebase API key from Secret Manager so it never appears in committed files.
 data "google_secret_manager_secret_version" "firebase_api_key" {
   project = var.project_id
@@ -30,7 +34,20 @@ resource "google_iap_settings" "app_engine" {
       client_id     = data.google_secret_manager_secret_version.iap_oauth_client_id.secret_data
       client_secret = data.google_secret_manager_secret_version.iap_oauth_client_secret.secret_data
     }
+    gcip_settings {
+      login_page_uri = "https://${var.gcip_login_page_base_uri}?apiKey=${data.google_secret_manager_secret_version.firebase_api_key.secret_data}"
+      tenant_ids = ["_${data.google_project.current.number}"]
+    }
   }
+}
 
-  depends_on = [google_app_engine_application.app]
+# This can only be applied after an app version has been deployed
+resource "google_iap_app_engine_service_iam_member" "iap_all_authenticated" {
+  project = var.project_id
+  app_id  = var.project_id
+  service = "default"
+  role    = "roles/iap.httpsResourceAccessor"
+  member  = "allAuthenticatedUsers"
+
+  depends_on = [google_iap_settings.app_engine]
 }

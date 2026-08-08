@@ -36,7 +36,7 @@
     <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
     <div>
         <strong>Division Lock Active:</strong>
-        After <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> for a team, a player may not play for another team in the same or a lower division. Moving up to a higher-ranked division remains allowed but the division lock would re-activate after 3 plays for a higher-ranked team.
+        After <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> for a team — counted cumulatively across that team and every higher-ranked team — a player may not play for another team in the same or a lower division. Moving up to a higher-ranked division remains allowed but the division lock would re-activate after {{ restriction.team_commitment_threshold }} plays for a higher-ranked team.
         {% if restriction.description %}<br><small class="text-muted">{{ restriction.description }}</small>{% endif %}
     </div>
 </div>

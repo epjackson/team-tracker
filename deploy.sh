@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 --env <dev|prod> [--migrate-at <HH:MM>]" >&2
+      echo "Usage: $0 --env <dev|preview|prod|preview> [--migrate-at <HH:MM>]" >&2
       exit 1
       ;;
   esac
@@ -40,7 +40,7 @@ if [[ -n "$MIGRATE_AT" ]]; then
   fi
 
   # Validate that the migration time is in the future (Europe/London).
-  MIGRATE_AT_CHECK=$(python -c "
+  MIGRATE_AT_CHECK=$(python3 -c "
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 tz = ZoneInfo('Europe/London')
@@ -64,19 +64,37 @@ else:
 fi
 
 case "$ENV" in
-  dev)  PROJECT_ID="dev-team-tracker-498611" ;;
-  prod) PROJECT_ID="thinking-prism-496011" ;;  # TODO: set prod project ID
+  dev|preview|prod) ;;
   *)
     echo "Error: unknown environment '$ENV'. Valid values: dev, prod" >&2
     exit 1
     ;;
 esac
 
+# PROJECT_ID is sourced from terraform.tfvars so deploy.sh can never drift
+# out of sync with the terraform-provisioned project.
+tfvars_project_id() {
+  local tfvars_file="terraform/$1/terraform.tfvars"
+  if [[ ! -f "$tfvars_file" ]]; then
+    echo "Error: $tfvars_file not found" >&2
+    exit 1
+  fi
+  local id
+  id=$(grep -E '^project_id[[:space:]]*=' "$tfvars_file" | sed -E 's/^project_id[[:space:]]*=[[:space:]]*"(.*)"$/\1/')
+  if [[ -z "$id" ]]; then
+    echo "Error: could not read project_id from $tfvars_file" >&2
+    exit 1
+  fi
+  echo "$id"
+}
+
+PROJECT_ID=$(tfvars_project_id "$ENV")
+
 echo "🌍 Environment: $ENV  (project: $PROJECT_ID)"
 gcloud config set project "$PROJECT_ID"
 gcloud auth application-default set-quota-project "$PROJECT_ID"
 
-SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
+SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 echo "🔑 Generated new SECRET_KEY for this deploy"
 
 FIREBASE_API_KEY=$(gcloud secrets versions access latest --secret=firebase-api-key --project="$PROJECT_ID" 2>/dev/null)
@@ -98,7 +116,7 @@ sed \
   app.yaml > "$TEMP_YAML"
 
 echo "📝 Writing deployment timestamp..."
-python -c "
+python3 -c "
 from datetime import datetime
 from zoneinfo import ZoneInfo
 tz = ZoneInfo('Europe/London')
@@ -110,8 +128,8 @@ with open('app/version.py', 'w') as f:
 "
 
 if [[ "$ENV" == "dev" ]]; then
-  PROD_BUCKET="thinking-prism-496011.appspot.com"
-  DEV_BUCKET="dev-team-tracker-498611.appspot.com"
+  PROD_BUCKET="$(tfvars_project_id prod).appspot.com"
+  DEV_BUCKET="${PROJECT_ID}.appspot.com"
   echo "📋 Seeding dev bucket with prod database..."
   if gcloud storage cp "gs://${PROD_BUCKET}/tennis.db" "gs://${DEV_BUCKET}/tennis.db" --quiet 2>/dev/null; then
     echo "✓ Dev bucket seeded with prod tennis.db"
@@ -124,7 +142,7 @@ BUCKET="${PROJECT_ID}.appspot.com"
 
 if [[ -n "$MIGRATE_AT" ]]; then
   # Write maintenance.json to GCS so the running app shows a warning banner.
-  MAINTENANCE_JSON=$(python -c "
+  MAINTENANCE_JSON=$(python3 -c "
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -175,7 +193,7 @@ fi
 if [[ -n "$MIGRATE_AT" ]]; then
   # Schedule traffic migration via Cloud Scheduler → App Engine Admin API.
   # Cron includes today's date so it fires exactly once.
-  CRON_EXPR=$(python -c "
+  CRON_EXPR=$(python3 -c "
 from datetime import datetime
 from zoneinfo import ZoneInfo
 tz = ZoneInfo('Europe/London')

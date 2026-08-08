@@ -165,7 +165,7 @@
                     <tr><td>Round 9 start date</td><td>The Saturday Round 9 begins; the week before it is automatically used as the second catch-up week</td></tr>
                     <tr><td>Doubles pairs per round</td><td>How many pairs play each match (usually 3)</td></tr>
                     <tr><td>Early season weeks</td><td>Rounds where the "one fixture per player per week" rule applies</td></tr>
-                    <tr><td>Team tie threshold</td><td>Matches played before a player is locked to that team</td></tr>
+                    <tr><td>Team tie threshold</td><td>Fixtures played before a player is locked to a team — counted cumulatively across that team and every higher-ranked team (e.g. 1 fixture for the A team plus 2 for the C team reaches a threshold of 3, locking the player to the C team)</td></tr>
                     <tr><td>Number of divisions</td><td>How many divisions to create immediately</td></tr>
                 </table>
 
@@ -318,7 +318,7 @@
                 <h3>Eligibility rules</h3>
                 <ul>
                     <li><strong>Early season weeks</strong> — during the first N rounds (set per league), a player can only appear in one fixture per week across all teams.</li>
-                    <li><strong>Team tie</strong> — after playing the threshold number of matches for a team, a player is locked to that team's division tier. They can still be picked for a <em>higher</em> division, but not a lower one.</li>
+                    <li><strong>Team tie</strong> — a player's fixtures for a team count towards that team <em>and every lower-ranked team</em>. Once the cumulative total for a team and everything above it reaches the threshold, the player is locked to that team's tier (e.g. 1 fixture for the A team plus 2 for the C team reaches a threshold of 3, locking the player to C even though neither team alone hit the threshold). They can still be picked for a <em>higher</em> team, but not a lower one.</li>
                 </ul>
                 <p>A player's current tie status is shown on their individual player page.</p>
             </div>
@@ -419,6 +419,7 @@
                 <p>Team Tracker is open source. The full source code is available on GitHub: <a href="https://github.com/epjackson/team-tracker" target="_blank" rel="noopener noreferrer">github.com/epjackson/team-tracker</a></p>
                 <table class="help-table">
                     <tr><th style="width:110px">Date</th><th>Change</th></tr>
+                    <tr><td>6 Aug 2026</td><td>Team tie threshold now counts fixtures cumulatively across a team and every higher-ranked team, instead of per specific team</td></tr>
                     <tr><td>29 Jun 2026</td><td>Walkover cycling (home / away / clear); eligibility logic and player summary refinements</td></tr>
                     <tr><td>20 Jun 2026</td><td>Sign-in and captain access; match fees; squad management; login activity log; admin user management</td></tr>
                     <tr><td>9 May 2026</td><td>Add/edit player forms; ICS fixture import; fixtures grouped by calendar week</td></tr>

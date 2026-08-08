@@ -1095,16 +1095,23 @@ def create_app(config=None):
                     if _lt and _lt.id not in _league_teams_by_id:
                         _league_teams_by_id[_lt.id] = _lt
 
-            # Players who've crossed the threshold via actual results but have no formal record.
+            # Players who've crossed the *cumulative* threshold (fixtures for a team plus
+            # every higher-ranked team) via actual results but have no formal record.
             _implicit_commit_by_player: dict = {}
+            _cum_through: dict = {}  # (player_id, team_id) -> cumulative count through that team
             if _commit_threshold > 0:
-                for (_ipid, _itid), _icnt in _fix_counts.items():
-                    if (
-                        _icnt >= _commit_threshold
-                        and _ipid not in _commitments_by_player
-                        and _ipid not in _implicit_commit_by_player
-                    ):
-                        _implicit_commit_by_player[_ipid] = _itid
+                _league_teams_sorted = sorted(_league_teams_by_id.values(), key=_team_rank)
+                _players_with_counts = {_pid for (_pid, _tid) in _fix_counts.keys()}
+                for _pid in _players_with_counts:
+                    _running = 0
+                    _committed_tid = None
+                    for _lt in _league_teams_sorted:
+                        _running += _fix_counts.get((_pid, _lt.id), 0)
+                        _cum_through[(_pid, _lt.id)] = _running
+                        if _committed_tid is None and _running >= _commit_threshold:
+                            _committed_tid = _lt.id
+                    if _committed_tid is not None and _pid not in _commitments_by_player:
+                        _implicit_commit_by_player[_pid] = _committed_tid
 
             def _player_meta_for_team(
                 team,
@@ -1113,7 +1120,7 @@ def create_app(config=None):
                 _implicit_commit_by_player=_implicit_commit_by_player,
                 _league_teams_by_id=_league_teams_by_id,
                 _commit_threshold=_commit_threshold,
-                _fix_counts=_fix_counts,
+                _cum_through=_cum_through,
             ):
                 """Return {player_id: eligibility dict} for all league_club_eligible players."""
                 if not team:
@@ -1181,7 +1188,7 @@ def create_app(config=None):
                                     "ineligible_reason": None,
                                 }
                     elif _commit_threshold > 0:
-                        cur = _fix_counts.get((_p.id, team.id), 0)
+                        cur = _cum_through.get((_p.id, team.id), 0)
                         result[_p.id] = {
                             "would_commit": cur == _commit_threshold - 1,
                             "commitment_info": None,
@@ -1607,16 +1614,19 @@ def create_app(config=None):
                         or 0
                     )
 
-                # Determine the effective committed team: highest-ranked team where
-                # the player has either a formal commitment or has hit the count threshold.
+                # Determine the effective committed team: most senior team where the
+                # player has either a formal commitment or has hit the *cumulative*
+                # fixture count (this team plus every higher-ranked team) threshold.
                 # league_teams is sorted by team_rank ascending (best team first).
                 committed_team_id = None
                 committed_rank = None
                 committed_team_name = None
 
-                # Count-based scan (best team first).
+                # Cumulative count-based scan (best team first).
+                running_total = 0
                 for ti in league_teams:
-                    if team_counts.get(ti["id"], 0) >= threshold:
+                    running_total += team_counts.get(ti["id"], 0)
+                    if running_total >= threshold:
                         committed_team_id = ti["id"]
                         committed_rank = ti["team_rank"]
                         committed_team_name = ti["name"]
@@ -1919,8 +1929,10 @@ def create_app(config=None):
                         {"team": lt, "count": count, "label": label, "team_rank": _team_rank(lt)}
                     )
 
-                # Determine committed team for this league (best team where threshold is met).
-                # team_matrix is ordered by Team.name; sort by team_rank for the scan.
+                # Determine committed team for this league: the more senior of the formal
+                # record and the team where *cumulative* fixtures (this team plus every
+                # higher-ranked team) reach the threshold. team_matrix is ordered by
+                # Team.name; sort by team_rank for the scan.
                 committed_team_id = None
                 committed_rank = None
                 committed_team = None
@@ -1932,12 +1944,15 @@ def create_app(config=None):
                     committed_team_id = existing_commitment.team_id
                     ct = existing_commitment.team
                     committed_rank = _team_rank(ct) if ct else (float("inf"), float("inf"))
-                elif info["commitment_threshold"]:
+                if info["commitment_threshold"]:
+                    running_total = 0
                     for entry in sorted(team_matrix, key=lambda e: e["team_rank"]):
-                        if entry["count"] >= info["commitment_threshold"]:
-                            committed_team = entry["team"]
-                            committed_team_id = entry["team"].id
-                            committed_rank = entry["team_rank"]
+                        running_total += entry["count"]
+                        if running_total >= info["commitment_threshold"]:
+                            if committed_rank is None or entry["team_rank"] < committed_rank:
+                                committed_team = entry["team"]
+                                committed_team_id = entry["team"].id
+                                committed_rank = entry["team_rank"]
                             break
                 info["committed_team"] = committed_team
 
@@ -2555,41 +2570,43 @@ def create_app(config=None):
                             if not player:
                                 continue
 
-                            for team in [home_team, away_team]:
-                                elig = check_player_eligibility(player.id, team.id, league_id)
-                                fixture_count = elig["current_fixtures"]
+                            elig = check_player_eligibility(player.id, home_team.id, league_id)
+                            committed_team_id = elig["effective_committed_team_id"]
+                            if not committed_team_id:
+                                continue
+                            committed_team = Team.query.get(committed_team_id)
 
-                                if fixture_count >= restriction.team_commitment_threshold:
-                                    existing_commitment = PlayerTeamCommitment.query.filter_by(
-                                        player_id=player.id,
-                                        league_id=league_id,
-                                        season="2026",
-                                    ).first()
-                                    if not existing_commitment:
-                                        commitment = PlayerTeamCommitment(
-                                            player_id=player.id,
-                                            team_id=team.id,
-                                            league_id=league_id,
-                                            season="2026",
-                                        )
-                                        db.session.add(commitment)
-                                        eligibility_warnings.append(
-                                            f"✅ {player_name} tied to {team.name} "
-                                            "for the season!"
-                                        )
-                                    elif existing_commitment.team_id != team.id:
-                                        # Upgrade commitment if this team is higher in hierarchy.
-                                        existing_rank = (
-                                            _team_rank(existing_commitment.team)
-                                            if existing_commitment.team
-                                            else (float("inf"), float("inf"))
-                                        )
-                                        if _team_rank(team) < existing_rank:
-                                            existing_commitment.team_id = team.id
-                                            eligibility_warnings.append(
-                                                f"✅ {player_name} commitment upgraded to "
-                                                f"{team.name} — now tied to {team.name}."
-                                            )
+                            existing_commitment = PlayerTeamCommitment.query.filter_by(
+                                player_id=player.id,
+                                league_id=league_id,
+                                season="2026",
+                            ).first()
+                            if not existing_commitment:
+                                commitment = PlayerTeamCommitment(
+                                    player_id=player.id,
+                                    team_id=committed_team_id,
+                                    league_id=league_id,
+                                    season="2026",
+                                )
+                                db.session.add(commitment)
+                                eligibility_warnings.append(
+                                    f"✅ {player_name} tied to {committed_team.name} "
+                                    "for the season!"
+                                )
+                            elif existing_commitment.team_id != committed_team_id:
+                                # Upgrade commitment if this team is higher in hierarchy.
+                                existing_rank = (
+                                    _team_rank(existing_commitment.team)
+                                    if existing_commitment.team
+                                    else (float("inf"), float("inf"))
+                                )
+                                if _team_rank(committed_team) < existing_rank:
+                                    existing_commitment.team_id = committed_team_id
+                                    eligibility_warnings.append(
+                                        f"✅ {player_name} commitment upgraded to "
+                                        f"{committed_team.name} — now tied to "
+                                        f"{committed_team.name}."
+                                    )
 
                         db.session.commit()
 
@@ -3094,43 +3111,36 @@ def create_app(config=None):
                     existing_ids.add(pid)
 
     def _ensure_team_commitments(fixture, player_ids, team_id):
-        """Create PlayerTeamCommitment records for players who have crossed the threshold."""
+        """Create/upgrade PlayerTeamCommitment records for players who crossed the threshold."""
         if not team_id or not fixture.league_id or not player_ids:
             return
         restriction = LeagueRestriction.query.filter_by(league_id=fixture.league_id).first()
         if not restriction or not restriction.team_commitment_threshold:
             return
-        threshold = restriction.team_commitment_threshold
-        new_team = Team.query.get(team_id)
-        new_team_rank = (
-            _division_rank(new_team.division.name)
-            if (new_team and new_team.division)
-            else float("inf")
-        )
         for pid in player_ids:
             elig = check_player_eligibility(pid, team_id, fixture.league_id)
-            if elig["current_fixtures"] >= threshold:
-                existing = PlayerTeamCommitment.query.filter_by(
-                    player_id=pid, league_id=fixture.league_id, season="2026"
-                ).first()
-                if not existing:
-                    db.session.add(
-                        PlayerTeamCommitment(
-                            player_id=pid,
-                            team_id=team_id,
-                            league_id=fixture.league_id,
-                            season="2026",
-                        )
+            committed_team_id = elig["effective_committed_team_id"]
+            if not committed_team_id:
+                continue
+            existing = PlayerTeamCommitment.query.filter_by(
+                player_id=pid, league_id=fixture.league_id, season="2026"
+            ).first()
+            if not existing:
+                db.session.add(
+                    PlayerTeamCommitment(
+                        player_id=pid,
+                        team_id=committed_team_id,
+                        league_id=fixture.league_id,
+                        season="2026",
                     )
-                elif existing.team_id != team_id:
-                    # Upgrade commitment if the new team is in a higher division.
-                    existing_rank = (
-                        _division_rank(existing.team.division.name)
-                        if (existing.team and existing.team.division)
-                        else float("inf")
-                    )
-                    if new_team_rank < existing_rank:
-                        existing.team_id = team_id
+                )
+            elif existing.team_id != committed_team_id:
+                existing_rank = (
+                    _team_rank(existing.team) if existing.team else (float("inf"), float("inf"))
+                )
+                new_rank = _team_rank(Team.query.get(committed_team_id))
+                if new_rank < existing_rank:
+                    existing.team_id = committed_team_id
 
     @app.route("/fixtures/<int:fixture_id>/rubbers/save", methods=["POST"])
     def save_rubbers(fixture_id):
