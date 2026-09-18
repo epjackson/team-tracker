@@ -4,17 +4,43 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <a href="{{ url_for('list_fixtures') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to Fixtures</a>
-        <h2 class="text-white mb-0"><i class="bi bi-pencil-square me-2"></i>Manual Fixture Entry</h2>
+        <a href="{{ url_for('fixture_detail', fixture_id=confirm_fixture.id) if confirm_fixture else url_for('list_fixtures') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>{{ 'Back to Fixture' if confirm_fixture else 'Back to Fixtures' }}</a>
+        <h2 class="text-white mb-0"><i class="bi bi-pencil-square me-2"></i>{{ 'Confirm Match-Day Submission' if confirm_fixture else 'Manual Fixture Entry' }}</h2>
     </div>
 </div>
 
+{% if confirm_fixture %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-1"></i>
+    Reviewing the pitchside scoresheet below will <strong>replace</strong> any existing
+    rubbers/results already saved for this fixture. Edit anything that needs correcting,
+    then save to update the real fixture record.
+    {% if draft and draft.submitted_by %}
+    <br>Submitted by <strong>{{ draft.submitted_by.name }}</strong>{% if draft.submitted_at %} on {{ draft.submitted_at.strftime('%d %b %Y %H:%M') }}{% endif %}.
+    {% endif %}
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-header">
-        <i class="bi bi-pencil me-2"></i>Enter Fixture Details
+        <i class="bi bi-pencil me-2"></i>{{ 'Fixture Details' if confirm_fixture else 'Enter Fixture Details' }}
     </div>
     <div class="card-body">
-        <form method="POST" id="fixtureForm">
+        <form method="POST" id="fixtureForm" action="{{ url_for('manual_fixture_entry') }}">
+            {% if confirm_fixture %}
+            <input type="hidden" name="fixture_id" value="{{ confirm_fixture.id }}">
+            <div class="mb-3">
+                <h5 class="mb-0">
+                    {{ confirm_fixture.home_team.name if confirm_fixture.home_team else confirm_fixture.home_team_name }}
+                    <span class="text-muted fw-normal">vs</span>
+                    {{ confirm_fixture.away_team.name if confirm_fixture.away_team else confirm_fixture.away_team_name }}
+                </h5>
+                {% if confirm_fixture.league %}
+                <p class="text-muted small mb-0">{{ confirm_fixture.league.name }}</p>
+                {% endif %}
+                <p class="text-muted small mb-0">{{ confirm_fixture.date.strftime('%A %d %B %Y') }}</p>
+            </div>
+            {% else %}
             <div class="row mb-4">
                 <div class="col-md-3">
                     <label for="fixture_date" class="form-label">Fixture Date *</label>
@@ -34,7 +60,7 @@
                     <select class="form-select" id="home_team_id" name="home_team_id" required>
                         <option value="">— Select Team —</option>
                         {% for team in teams %}
-                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -43,11 +69,12 @@
                     <select class="form-select" id="away_team_id" name="away_team_id" required>
                         <option value="">— Select Team —</option>
                         {% for team in teams %}
-                        <option value="{{ team.id }}">{{ team.name }}</option>
+                        <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
             </div>
+            {% endif %}
 
             <!-- Rubbers Section -->
             <div class="mb-4">
@@ -62,53 +89,105 @@
             </div>
 
             <div class="d-flex gap-2">
+                {% if confirm_fixture %}
+                <button type="button" class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#confirmSaveModal">
+                    <i class="bi bi-check-circle me-1"></i>Confirm & Save Fixture
+                </button>
+                {% else %}
                 <button type="submit" class="btn btn-tennis">
                     <i class="bi bi-check-circle me-1"></i>Save Fixture
                 </button>
-                <a href="{{ url_for('list_fixtures') }}" class="btn btn-outline-secondary">Cancel</a>
+                {% endif %}
+                <a href="{{ url_for('fixture_detail', fixture_id=confirm_fixture.id) if confirm_fixture else url_for('list_fixtures') }}" class="btn btn-outline-secondary">Cancel</a>
             </div>
         </form>
     </div>
 </div>
 
-<script>
-let rubberCount = 0;
-
-function addRubber() {
-    const container = document.getElementById('rubbersContainer');
-    const rubberHtml = `
-        <div class="card mb-3 rubber-card" data-index="${rubberCount}">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-diagram-3 me-2"></i>Rubber #${rubberCount + 1}</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRubber(${rubberCount})">
-                    <i class="bi bi-trash me-1"></i>Remove
+{% if confirm_fixture %}
+<!-- Confirm Save Modal -->
+<div class="modal fade" id="confirmSaveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Match-Day Submission</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>This will <strong>replace</strong> any existing rubbers/results already saved for this fixture
+                and permanently save these scores to the database.</p>
+                <p class="mb-0">Are you sure you want to continue?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-tennis" id="confirmSaveBtn">
+                    <i class="bi bi-check-circle me-1"></i>Yes, Save to Database
                 </button>
             </div>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Type</label>
-                        <select class="form-select" name="rubber_${rubberCount}_type" value="singles">
-                            <option value="singles">Singles</option>
-                            <option value="doubles">Doubles</option>
-                        </select>
-                    </div>
-                </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Home Players (comma-separated)</label>
-                        <input type="text" class="form-control" name="rubber_${rubberCount}_home_players"
-                               placeholder="e.g. John Doe, Jane Smith">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Away Players (comma-separated)</label>
-                        <input type="text" class="form-control" name="rubber_${rubberCount}_away_players"
-                               placeholder="e.g. Bob Wilson, Alice Johnson">
-                    </div>
-                </div>
+<datalist id="playerNamesList"></datalist>
+<script>
+let rubberCount = 0;
+let STRUCTURED = false;
+const PREFILL_RUBBERS = {{ (prefill_rubbers_json | safe) if prefill_rubbers_json else '[]' }};
+const IS_CONFIRM = {{ 'true' if confirm_fixture else 'false' }};
+const ALL_PLAYER_NAMES = {{ (all_player_names_json | safe) if all_player_names_json else '[]' }};
+// Cleveland Autumn multi-pair leagues need their rubbers entered in the exact
+// pair-major stride build_rubber_plan()/fixture_detail's Pairs grid use
+// (rubber_number = pair_index*n_pairs + round) — not the order a match is
+// actually played court-side. These plans drive auto-generated, correctly
+// labelled, order-locked cards instead of the freeform "Rubber #N" flow, so
+// an admin transcribing a scoresheet round-by-round can't silently
+// cross-attribute rubbers between pairs (see app/__init__.py's
+// _autumn_pairs_plan). Keyed by league_id (string, since JSON object keys
+// are always strings — matches <select> option values directly).
+const LEAGUE_PAIRS_PLANS = {{ (league_pairs_plans_json | safe) if league_pairs_plans_json else '{}' }};
+const CONFIRM_PAIRS_PLAN = {{ (confirm_pairs_plan_json | safe) if confirm_pairs_plan_json else 'null' }};
 
-                <!-- Set Scores -->
+// Predictive suggestions for player-name fields, drawn from the central player
+// record (any season) — comma-separated fields only match the datalist on the
+// name currently being typed, but it still helps find an existing player.
+const playerNamesDatalist = document.getElementById('playerNamesList');
+ALL_PLAYER_NAMES.forEach(function (name) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    playerNamesDatalist.appendChild(opt);
+});
+
+function addRubber(prefill, label) {
+    prefill = prefill || {};
+    const container = document.getElementById('rubbersContainer');
+    const type = prefill.type === 'doubles' ? 'doubles' : 'singles';
+    const val = function (v) { return v === null || v === undefined ? '' : v; };
+    const cardLabel = label || ('Rubber #' + (rubberCount + 1));
+    const setScoresHtml = IS_CONFIRM ? `
+                <div class="rubber-score-group d-flex flex-column gap-1" data-index="${rubberCount}">
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control text-center score-box set1-box" name="rubber_${rubberCount}_home_set1"
+                               min="0" max="7" placeholder="H" value="${val(prefill.home_set1)}">
+                        <span class="input-group-text">-</span>
+                        <input type="number" class="form-control text-center score-box set1-box" name="rubber_${rubberCount}_away_set1"
+                               min="0" max="7" placeholder="A" value="${val(prefill.away_set1)}">
+                    </div>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control text-center score-box set2-box" name="rubber_${rubberCount}_home_set2"
+                               min="0" max="7" placeholder="H" value="${val(prefill.home_set2)}">
+                        <span class="input-group-text">-</span>
+                        <input type="number" class="form-control text-center score-box set2-box" name="rubber_${rubberCount}_away_set2"
+                               min="0" max="7" placeholder="A" value="${val(prefill.away_set2)}">
+                    </div>
+                    <div class="input-group input-group-sm tiebreak-group d-none">
+                        <input type="number" class="form-control text-center score-box tb-box" name="rubber_${rubberCount}_home_set3"
+                               min="0" max="30" placeholder="H" value="${val(prefill.home_set3)}">
+                        <span class="input-group-text">-</span>
+                        <input type="number" class="form-control text-center score-box tb-box" name="rubber_${rubberCount}_away_set3"
+                               min="0" max="30" placeholder="A" value="${val(prefill.away_set3)}">
+                    </div>
+                </div>` : `
                 <div class="row mb-3">
                     <div class="col-12">
                         <label class="form-label">Set Scores</label>
@@ -117,39 +196,169 @@ function addRubber() {
                         <small class="text-muted d-block mb-2">Set 1</small>
                         <div class="input-group input-group-sm">
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set1"
-                                   min="0" max="7" placeholder="H">
+                                   min="0" max="7" placeholder="H" value="${val(prefill.home_set1)}">
                             <span class="input-group-text">-</span>
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set1"
-                                   min="0" max="7" placeholder="A">
+                                   min="0" max="7" placeholder="A" value="${val(prefill.away_set1)}">
                         </div>
                     </div>
                     <div class="col-md-4">
                         <small class="text-muted d-block mb-2">Set 2</small>
                         <div class="input-group input-group-sm">
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set2"
-                                   min="0" max="7" placeholder="H">
+                                   min="0" max="7" placeholder="H" value="${val(prefill.home_set2)}">
                             <span class="input-group-text">-</span>
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set2"
-                                   min="0" max="7" placeholder="A">
+                                   min="0" max="7" placeholder="A" value="${val(prefill.away_set2)}">
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <small class="text-muted d-block mb-2">Set 3 (if needed)</small>
+                        <small class="text-muted d-block mb-2">Champion Tie-break (only if sets are shared 1-1)</small>
                         <div class="input-group input-group-sm">
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_home_set3"
-                                   min="0" max="7" placeholder="H">
+                                   min="0" max="30" placeholder="H" value="${val(prefill.home_set3)}">
                             <span class="input-group-text">-</span>
                             <input type="number" class="form-control text-center" name="rubber_${rubberCount}_away_set3"
-                                   min="0" max="7" placeholder="A">
+                                   min="0" max="30" placeholder="A" value="${val(prefill.away_set3)}">
                         </div>
                     </div>
+                </div>`;
+    const typeFieldHtml = IS_CONFIRM ? `
+                <input type="hidden" name="rubber_${rubberCount}_type" value="${type}">` : `
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" name="rubber_${rubberCount}_type">
+                            <option value="singles" ${type === 'singles' ? 'selected' : ''}>Singles</option>
+                            <option value="doubles" ${type === 'doubles' ? 'selected' : ''}>Doubles</option>
+                        </select>
+                    </div>
+                </div>`;
+    const playersRowHtml = IS_CONFIRM ? `
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <input type="text" class="form-control form-control-sm" name="rubber_${rubberCount}_home_players"
+                               list="playerNamesList" placeholder="Home players" value="${val(prefill.home_players)}">
+                    </div>
+                    <div class="col-6">
+                        <input type="text" class="form-control form-control-sm" name="rubber_${rubberCount}_away_players"
+                               list="playerNamesList" placeholder="Away players" value="${val(prefill.away_players)}">
+                    </div>
+                </div>` : `
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Home Players (comma-separated)</label>
+                        <input type="text" class="form-control" name="rubber_${rubberCount}_home_players"
+                               list="playerNamesList" placeholder="e.g. John Doe, Jane Smith" value="${val(prefill.home_players)}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Away Players (comma-separated)</label>
+                        <input type="text" class="form-control" name="rubber_${rubberCount}_away_players"
+                               list="playerNamesList" placeholder="e.g. Bob Wilson, Alice Johnson" value="${val(prefill.away_players)}">
+                    </div>
+                </div>`;
+    const removeBtnHtml = (IS_CONFIRM || STRUCTURED) ? '' : `
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRubber(${rubberCount})">
+                    <i class="bi bi-trash me-1"></i>Remove
+                </button>`;
+    const rubberHtml = IS_CONFIRM ? `
+        <div class="card mb-2 rubber-card rubber-card-condensed" data-index="${rubberCount}">
+            <div class="card-body py-2 px-3">
+                <div class="rubber-condensed-label text-muted small text-uppercase mb-2">${cardLabel}</div>
+                ${typeFieldHtml}
+                ${playersRowHtml}
+                <div class="d-flex align-items-center justify-content-end gap-2">
+                    <div class="rubber-scores-wrap" data-index="${rubberCount}">
+                        ${setScoresHtml}
+                    </div>
+                    <button type="button" class="btn btn-sm walkover-toggle-btn" data-index="${rubberCount}"
+                            onclick="cycleRubberWalkover(${rubberCount})">
+                        <span class="wo-label">W/O</span>
+                    </button>
+                    <input type="hidden" name="rubber_${rubberCount}_walkover" class="walkover-hidden-input"
+                           data-index="${rubberCount}" value="${val(prefill.walkover)}">
+                </div>
+            </div>
+        </div>
+    ` : `
+        <div class="card mb-3 rubber-card" data-index="${rubberCount}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-diagram-3 me-2"></i>${cardLabel}</span>
+                ${removeBtnHtml}
+            </div>
+            <div class="card-body">
+                ${typeFieldHtml}
+                ${playersRowHtml}
+
+                <!-- Walkover -->
+                <div class="mb-3">
+                    <button type="button" class="btn btn-sm walkover-toggle-btn" data-index="${rubberCount}"
+                            onclick="cycleRubberWalkover(${rubberCount})">
+                        <i class="bi bi-flag me-1"></i><span class="wo-label">Mark as walkover</span>
+                    </button>
+                    <input type="hidden" name="rubber_${rubberCount}_walkover" class="walkover-hidden-input"
+                           data-index="${rubberCount}" value="${val(prefill.walkover)}">
+                </div>
+
+                <!-- Set Scores -->
+                <div class="rubber-scores-wrap" data-index="${rubberCount}">
+                    ${setScoresHtml}
                 </div>
             </div>
         </div>
     `;
     container.insertAdjacentHTML('beforeend', rubberHtml);
+    applyWalkoverUI(rubberCount);
+    if (IS_CONFIRM) updateTiebreakVisibility(rubberCount);
     rubberCount++;
     document.querySelector('input[name="rubber_count"]').value = rubberCount;
+}
+
+function updateTiebreakVisibility(idx) {
+    const group = document.querySelector(`.rubber-score-group[data-index="${idx}"]`);
+    if (!group) return;
+    const tbGroup = group.querySelector('.tiebreak-group');
+    if (!tbGroup) return;
+    const set1 = group.querySelectorAll('.set1-box');
+    const set2 = group.querySelectorAll('.set2-box');
+    let split = false;
+    if (set1[0].value !== '' && set1[1].value !== '' && set2[0].value !== '' && set2[1].value !== '') {
+        const w1 = Number(set1[0].value) > Number(set1[1].value) ? 'home' : (Number(set1[1].value) > Number(set1[0].value) ? 'away' : null);
+        const w2 = Number(set2[0].value) > Number(set2[1].value) ? 'home' : (Number(set2[1].value) > Number(set2[0].value) ? 'away' : null);
+        split = w1 && w2 && w1 !== w2;
+    }
+    const tb = group.querySelectorAll('.tb-box');
+    const hasTbValue = tb[0].value !== '' || tb[1].value !== '';
+    tbGroup.classList.toggle('d-none', !(split || hasTbValue));
+    if (!split && !hasTbValue) { tb[0].value = ''; tb[1].value = ''; }
+}
+
+function applyWalkoverUI(idx) {
+    const hidden = document.querySelector(`.walkover-hidden-input[data-index="${idx}"]`);
+    const btn = document.querySelector(`.walkover-toggle-btn[data-index="${idx}"]`);
+    const wrap = document.querySelector(`.rubber-scores-wrap[data-index="${idx}"]`);
+    const label = btn.querySelector('.wo-label');
+    const val = hidden.value;
+    btn.classList.remove('winner-badge', 'winner-home', 'winner-away', 'btn-outline-secondary');
+    if (val === 'home') {
+        btn.classList.add('winner-badge', 'winner-home');
+        label.textContent = IS_CONFIRM ? 'W/O — Home' : 'Walkover — Home win (tap to switch to Away)';
+        wrap.classList.add('d-none');
+    } else if (val === 'away') {
+        btn.classList.add('winner-badge', 'winner-away');
+        label.textContent = IS_CONFIRM ? 'W/O — Away' : 'Walkover — Away win (tap to clear)';
+        wrap.classList.add('d-none');
+    } else {
+        btn.classList.add('btn-outline-secondary');
+        label.textContent = IS_CONFIRM ? 'W/O' : 'Mark as walkover';
+        wrap.classList.remove('d-none');
+    }
+}
+
+function cycleRubberWalkover(idx) {
+    const hidden = document.querySelector(`.walkover-hidden-input[data-index="${idx}"]`);
+    hidden.value = hidden.value === '' ? 'home' : (hidden.value === 'home' ? 'away' : '');
+    applyWalkoverUI(idx);
 }
 
 function removeRubber(index) {
@@ -161,9 +370,89 @@ function removeRubber(index) {
     }
 }
 
-document.getElementById('addRubberBtn').addEventListener('click', addRubber);
+function clearRubbers() {
+    document.getElementById('rubbersContainer').innerHTML = '';
+    rubberCount = 0;
+    document.querySelector('input[name="rubber_count"]').value = 0;
+}
 
-// Initialize with one rubber on page load
+// Auto-generate one correctly-labelled, order-locked card per plan slot, in
+// the plan's own (already pair-major/canonical) order — no reordering is
+// needed since build_rubber_plan()'s slots are already yielded i-major,
+// n-minor, matching rubber_number = i*n_pairs+n exactly.
+function buildStructuredRubbers(plan, prefillList) {
+    clearRubbers();
+    STRUCTURED = true;
+    plan.forEach(function (slot, idx) {
+        addRubber((prefillList && prefillList[idx]) || {}, slot.label);
+    });
+    document.getElementById('addRubberBtn').classList.add('d-none');
+}
+
+function buildFreeformRubbers(prefillList) {
+    clearRubbers();
+    STRUCTURED = false;
+    document.getElementById('addRubberBtn').classList.remove('d-none');
+    if (prefillList && prefillList.length) {
+        prefillList.forEach(function (r) { addRubber(r); });
+    } else {
+        addRubber();
+    }
+}
+
+document.getElementById('addRubberBtn').addEventListener('click', function () { addRubber(); });
+
+if (IS_CONFIRM) {
+    document.getElementById('rubbersContainer').addEventListener('input', function (e) {
+        if (!e.target.classList) return;
+        if (e.target.classList.contains('set1-box') || e.target.classList.contains('set2-box')) {
+            const group = e.target.closest('.rubber-score-group');
+            if (group) updateTiebreakVisibility(parseInt(group.dataset.index, 10));
+        }
+    });
+}
+
+// Scope the team dropdowns to the chosen league so identically-named teams
+// from a different season (e.g. "Yarm A Men" in both Summer and Autumn)
+// aren't ambiguous. "— No league —" leaves every team visible.
+const leagueSelect = document.getElementById('league_id');
+if (leagueSelect) {
+    const teamSelects = [document.getElementById('home_team_id'), document.getElementById('away_team_id')];
+    const filterTeamsByLeague = function () {
+        const leagueId = leagueSelect.value;
+        teamSelects.forEach(function (select) {
+            Array.from(select.options).forEach(function (opt) {
+                if (!opt.value) return; // keep the placeholder
+                const visible = !leagueId || opt.dataset.leagueId === leagueId;
+                opt.hidden = !visible;
+                if (!visible && opt.selected) {
+                    select.value = '';
+                }
+            });
+        });
+    };
+    leagueSelect.addEventListener('change', filterTeamsByLeague);
+    filterTeamsByLeague();
+
+    // Switch between the auto-structured pairs layout and the freeform
+    // "Add Rubber" flow whenever the chosen league's format/pairs changes.
+    leagueSelect.addEventListener('change', function () {
+        const plan = LEAGUE_PAIRS_PLANS[leagueSelect.value];
+        if (plan) {
+            buildStructuredRubbers(plan.plan, []);
+        } else {
+            buildFreeformRubbers([]);
+        }
+    });
+}
+
+if (IS_CONFIRM) {
+    document.getElementById('confirmSaveBtn').addEventListener('click', function () {
+        document.getElementById('fixtureForm').submit();
+    });
+}
+
+// Initialize with one rubber (or the pitchside-submitted rubbers, if confirming) on page load
 document.addEventListener('DOMContentLoaded', function() {
     const container = document.getElementById('fixtureForm');
     const hiddenInput = document.createElement('input');
@@ -171,7 +460,11 @@ document.addEventListener('DOMContentLoaded', function() {
     hiddenInput.name = 'rubber_count';
     hiddenInput.value = '0';
     container.appendChild(hiddenInput);
-    addRubber();
+    if (CONFIRM_PAIRS_PLAN) {
+        buildStructuredRubbers(CONFIRM_PAIRS_PLAN.plan, PREFILL_RUBBERS);
+    } else {
+        buildFreeformRubbers(PREFILL_RUBBERS);
+    }
 });
 </script>
 
@@ -179,6 +472,22 @@ document.addEventListener('DOMContentLoaded', function() {
 .rubber-card {
     background: #f8f9fa;
     border-left: 4px solid #1a6b50;
+}
+.rubber-card-condensed {
+    border-left: 3px solid #1a6b50;
+}
+.rubber-condensed-label {
+    letter-spacing: 0.03em;
+}
+.rubber-score-group {
+    width: auto;
+    flex-shrink: 0;
+}
+.rubber-score-group .score-box {
+    width: 3rem;
+}
+.walkover-toggle-btn {
+    white-space: nowrap;
 }
 </style>
 {% endblock %}

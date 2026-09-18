@@ -19,6 +19,98 @@ player_teams = db.Table(
 
 # ── League & Division ────────────────────────────────────────────────────
 
+LEAGUE_FORMAT_CLEVELAND_AUTUMN = "cleveland_autumn"
+LEAGUE_FORMAT_CLEVELAND_VETERANS = "cleveland_veterans"
+LEAGUE_FORMAT_NE_WINTER = "ne_winter"
+
+LEAGUE_FORMAT_CHOICES = [
+    (LEAGUE_FORMAT_CLEVELAND_AUTUMN, "Cleveland Autumn (pairs rotation)"),
+    (LEAGUE_FORMAT_CLEVELAND_VETERANS, "Cleveland Veterans (6 fixed rubbers)"),
+    (LEAGUE_FORMAT_NE_WINTER, "North-East Winter (4 fixed rubbers, 2 sets, set-points)"),
+]
+LEAGUE_FORMAT_LABELS = dict(LEAGUE_FORMAT_CHOICES)
+
+# Season-type badges (S/A/V/W) shown in the nav and on the Home page cards. A
+# ParentLeague is tagged with one of these so its Leagues can be grouped into
+# a single switchable "season" regardless of how many gender editions it has.
+SEASON_TYPE_SUMMER = "summer"
+SEASON_TYPE_AUTUMN = "autumn"
+SEASON_TYPE_VETERANS = "veterans"
+SEASON_TYPE_WINTER = "winter"
+
+SEASON_TYPE_CHOICES = [
+    (SEASON_TYPE_SUMMER, "Summer"),
+    (SEASON_TYPE_AUTUMN, "Autumn"),
+    (SEASON_TYPE_VETERANS, "Veterans"),
+    (SEASON_TYPE_WINTER, "Winter"),
+]
+SEASON_TYPE_LABELS = dict(SEASON_TYPE_CHOICES)
+SEASON_TYPE_BADGES = {
+    SEASON_TYPE_SUMMER: "S",
+    SEASON_TYPE_AUTUMN: "A",
+    SEASON_TYPE_VETERANS: "V",
+    SEASON_TYPE_WINTER: "W",
+}
+
+# Fixed badge colours, independent of any ParentLeague.colour (which stays admin-editable
+# for the Leagues page's own grouping display). Chosen for even hue spacing against each
+# other and against the app's forest-green theme (#0f4c3a/#1a6b50/#90ee90): amber, rust,
+# plum, and steel-blue each sit 45°+ apart on the wheel and away from green's ~150° hue.
+SEASON_TYPE_COLOURS = {
+    SEASON_TYPE_SUMMER: "#e0a526",  # warm amber/gold
+    SEASON_TYPE_AUTUMN: "#c1440e",  # burnt rust/orange
+    SEASON_TYPE_VETERANS: "#6a4c93",  # muted plum/violet
+    SEASON_TYPE_WINTER: "#2166ac",  # frosty steel blue
+}
+
+# Fixed badge colours for the three doubles disciplines, keyed by the same short
+# label ("Men's"/"Women's"/"Mixed") fixtures.html derives from a league's name.
+# Deliberately independent of ParentLeague.colour (the season swatch, admin-editable
+# elsewhere) so a discipline badge is never accidentally the same colour as — or as
+# easily mis-set as — the season badge it's displayed next to on the Fixtures page.
+DISCIPLINE_COLOURS = {
+    "Men's": "#1971c2",  # clear blue
+    "Women's": "#c2255c",  # rose pink
+    "Mixed": "#0c8599",  # teal
+}
+
+
+class ParentLeague(db.Model):
+    """A format+brand definition shared by one or more Leagues.
+
+    Locks in the doubles format (pairs per round, sets, games, tie-break) for
+    every League that belongs to it, plus a display colour for UI badges.
+    """
+
+    __tablename__ = "parent_leagues"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    colour = db.Column(db.String(7), nullable=False, default="#2e7d32")
+    description = db.Column(db.Text, nullable=True)
+
+    pairs_per_round = db.Column(
+        db.Integer, nullable=False, comment="Number of doubles pairs per round"
+    )
+    sets_per_rubber = db.Column(db.Integer, nullable=False, default=1, comment="Descriptive only")
+    games_per_set = db.Column(db.Integer, nullable=False, default=8, comment="Descriptive only")
+    tiebreak_at_games = db.Column(db.Integer, nullable=False, default=8, comment="Descriptive only")
+    format = db.Column(
+        db.String(30),
+        nullable=False,
+        default=LEAGUE_FORMAT_CLEVELAND_AUTUMN,
+        comment="Rubber structure/scoring format — see build_rubber_plan()",
+    )
+    season_type = db.Column(
+        db.String(20),
+        nullable=True,
+        comment="Which nav badge (summer/autumn/veterans/winter) this belongs to, if any",
+    )
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    leagues = db.relationship("League", backref="parent_league")
+
 
 class League(db.Model):
     """A tennis league (e.g. 'Summer League', 'Winter League').
@@ -45,6 +137,13 @@ class League(db.Model):
     pairs_per_round = db.Column(
         db.Integer, nullable=True, comment="Number of doubles pairs per round"
     )
+    format = db.Column(
+        db.String(30),
+        nullable=False,
+        default=LEAGUE_FORMAT_CLEVELAND_AUTUMN,
+        comment="Rubber structure/scoring format — see build_rubber_plan()",
+    )
+    parent_league_id = db.Column(db.Integer, db.ForeignKey("parent_leagues.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     divisions = db.relationship(
@@ -53,12 +152,36 @@ class League(db.Model):
     restrictions = db.relationship(
         "LeagueRestriction", backref="league", lazy="dynamic", cascade="all, delete-orphan"
     )
+    catchup_weeks = db.relationship(
+        "LeagueCatchupWeek",
+        backref="league",
+        lazy="dynamic",
+        cascade="all, delete-orphan",
+        order_by="LeagueCatchupWeek.start_date",
+    )
+
+    @property
+    def catchup_week_start_dates(self):
+        """Return this league's catch-up week Saturdays, sorted."""
+        return [cw.start_date for cw in self.catchup_weeks]
 
     def delete_league(self):
         """Delete the league and cascade deletions to associated divisions, teams, etc."""
         db.session.delete(self)
         db.session.commit()
         return True
+
+
+class LeagueCatchupWeek(db.Model):
+    """A single catch-up week (no rounds played) within a league's season."""
+
+    __tablename__ = "league_catchup_weeks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    league_id = db.Column(db.Integer, db.ForeignKey("leagues.id"), nullable=False)
+    start_date = db.Column(
+        db.Date, nullable=False, comment="Saturday that begins the catch-up week"
+    )
 
 
 class Division(db.Model):
@@ -190,12 +313,6 @@ class Team(db.Model):
     away_fixtures = db.relationship(
         "Fixture", foreign_keys="Fixture.away_team_id", backref="away_team", lazy="dynamic"
     )
-
-    def delete_team(self):
-        """Delete the team and cascade deletions to associated player commitments."""
-        db.session.delete(self)
-        db.session.commit()
-        return True
 
 
 class Player(db.Model):
@@ -416,9 +533,16 @@ class MatchFeePaid(db.Model):
 class CaptainUser(db.Model):
     """Maps a Firebase UID to a player, granting captain-level access.
 
-    All Firebase users without a CaptainUser record are treated as admins.
-    A CaptainUser is linked to a Player who has TeamCaptain records determining
+    All Firebase users without a CaptainUser record are treated as admins. A
+    CaptainUser is linked to a Player who has TeamCaptain records determining
     which teams they can manage.
+
+    Rows with `sees_all_fixtures=True` are a special case: they exist purely so an
+    admin can also use the pitchside match-day login (which looks players up by
+    CaptainUser.email + Player.lta_number). Their `uid` is a synthetic value, not a
+    real Firebase UID, so they're never found by `CaptainUser.query.get(<real uid>)`
+    at normal sign-in — the admin's real role is unaffected. Unlike an ordinary
+    captain, they aren't restricted to fixtures involving a team they captain.
     """
 
     __tablename__ = "captain_users"
@@ -426,6 +550,7 @@ class CaptainUser(db.Model):
     uid = db.Column(db.String(128), primary_key=True)
     email = db.Column(db.String(200), nullable=False)
     player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    sees_all_fixtures = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     player = db.relationship("Player", backref="captain_login")
@@ -433,6 +558,38 @@ class CaptainUser(db.Model):
     def __repr__(self):
         """Return string representation of CaptainUser."""
         return f"<CaptainUser uid={self.uid} email={self.email}>"
+
+
+class MatchDayDraft(db.Model):
+    """A pitchside, captain-entered draft scoresheet for a fixture.
+
+    Captains fill this in from their phone during a match via a separate lightweight
+    login (email + last-4 LTA digits), as a memory aid for the paper scorecard. It never
+    updates the real Rubber/PlayerMatchResult rows directly — an admin or captain must
+    log in normally afterwards and confirm it via the manual fixture entry form, which
+    is pre-filled from this draft's data.
+    """
+
+    __tablename__ = "match_day_drafts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    fixture_id = db.Column(db.Integer, db.ForeignKey("fixtures.id"), nullable=False, unique=True)
+    status = db.Column(db.String(20), nullable=False, default="draft")  # draft/submitted/confirmed
+    data = db.Column(db.Text, nullable=True)  # JSON-encoded {"rubbers": [...]}
+    started_by_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    submitted_by_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_saved_at = db.Column(db.DateTime, nullable=True)
+    submitted_at = db.Column(db.DateTime, nullable=True)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
+
+    fixture = db.relationship("Fixture", backref=db.backref("match_day_draft", uselist=False))
+    started_by = db.relationship("Player", foreign_keys=[started_by_player_id])
+    submitted_by = db.relationship("Player", foreign_keys=[submitted_by_player_id])
+
+    def __repr__(self):
+        """Return string representation of MatchDayDraft."""
+        return f"<MatchDayDraft fixture={self.fixture_id} status={self.status}>"
 
 
 class AppSetting(db.Model):
@@ -472,15 +629,13 @@ class LoginEvent(db.Model):
 def fixture_round_label(
     fixture_date: date,
     league_start_date,
-    round5_start_date=None,
-    round9_start_date=None,
+    catchup_week_starts=None,
 ) -> str | None:
     """Return the round label for a fixture given the league start date.
 
-    When round5_start_date / round9_start_date are provided, catch-up weeks are
-    inferred as the week immediately before each of those dates.  Otherwise falls
-    back to the original hardcoded schedule: Rounds 1-4, catch-up week,
-    Rounds 5-8, catch-up week, then Rounds 9+.
+    catchup_week_starts is an iterable of Saturdays that are catch-up weeks (no
+    rounds played) — any number of them, anywhere in the season, or none at all
+    for a league that runs in consecutive rounds throughout.
 
     Returns 'Round N', 'Catch-up Week', or None if no start date or the fixture
     date is before the season begins.
@@ -488,36 +643,428 @@ def fixture_round_label(
     if not league_start_date or fixture_date < league_start_date:
         return None
 
-    if round5_start_date or round9_start_date:
-        catchup1_start = round5_start_date - timedelta(days=7) if round5_start_date else None
-        catchup2_start = round9_start_date - timedelta(days=7) if round9_start_date else None
+    catchup_set = set(catchup_week_starts or [])
+    week_start = league_start_date
+    round_num = 1
+    while True:
+        week_end = week_start + timedelta(days=7)
+        if week_start <= fixture_date < week_end:
+            return "Catch-up Week" if week_start in catchup_set else f"Round {round_num}"
+        if week_start not in catchup_set:
+            round_num += 1
+        week_start = week_end
 
-        if round9_start_date and fixture_date >= round9_start_date:
-            week = (fixture_date - round9_start_date).days // 7
-            return f"Round {week + 9}"
-        if catchup2_start and fixture_date >= catchup2_start:
-            return "Catch-up Week"
-        if round5_start_date and fixture_date >= round5_start_date:
-            week = (fixture_date - round5_start_date).days // 7
-            return f"Round {week + 5}"
-        if catchup1_start and fixture_date >= catchup1_start:
-            return "Catch-up Week"
-        # Before first catch-up week
-        week = (fixture_date - league_start_date).days // 7
-        return f"Round {week + 1}"
 
-    # Fallback: original hardcoded offsets
-    week = (fixture_date - league_start_date).days // 7
-    if week < 4:
-        return f"Round {week + 1}"
-    elif week == 4:
-        return "Catch-up Week"
-    elif week < 9:
-        return f"Round {week}"
-    elif week == 9:
-        return "Catch-up Week"
+# ── Rubber plan: shape/pairing per league format ────────────────────────────
+
+
+class RubberSlot:
+    """One rubber's shape/pairing within a fixture's rubber plan.
+
+    `home_slots`/`away_slots` are 2-tuples of squad-slot keys ("pair1_man",
+    "pair1_woman", "pair2_man", "pair2_woman") naming which of *that side's own*
+    4 fixed squad players fill this rubber. They differ between home and away
+    only for cleveland_veterans' two "cross" mixed rubbers (pair 1 faces the
+    opponent's pair 2, and vice versa) — every other rubber in both fixed-squad
+    formats is symmetric. Both are None for cleveland_autumn, whose pairing is
+    computed dynamically elsewhere (the pairs rotation in save_rubbers and the
+    matching JS in pitchside_entry.html) — this plan only fixes its shape.
+    """
+
+    def __init__(self, rubber_number, label, sets, home_slots=None, away_slots=None):
+        """Store this slot's physical rubber_number, display label, and shape."""
+        self.rubber_number = rubber_number
+        self.label = label
+        self.sets = sets
+        self.home_slots = home_slots
+        self.away_slots = away_slots
+
+
+def build_rubber_plan(league):
+    """Return the ordered rubber plan (list of RubberSlot) for a league's format.
+
+    Single source of truth for rubber count/labels/sets-per-rubber across all
+    three formats, shared by ICS import, fixture_detail's squad size/grid,
+    edit_fixture's walkover max score, save_rubbers, and pitchside_entry.
+    """
+    fmt = (league.format if league else None) or LEAGUE_FORMAT_CLEVELAND_AUTUMN
+    if fmt == LEAGUE_FORMAT_CLEVELAND_VETERANS:
+        mens = ("pair1_man", "pair2_man")
+        womens = ("pair1_woman", "pair2_woman")
+        p1 = ("pair1_man", "pair1_woman")
+        p2 = ("pair2_man", "pair2_woman")
+        return [
+            RubberSlot(1, "Mens Doubles", 1, mens, mens),
+            RubberSlot(2, "Womens Doubles", 1, womens, womens),
+            RubberSlot(3, "Mixed 1 v Mixed 1", 1, p1, p1),
+            RubberSlot(4, "Mixed 1 v Mixed 2", 1, p1, p2),
+            RubberSlot(5, "Mixed 2 v Mixed 1", 1, p2, p1),
+            RubberSlot(6, "Mixed 2 v Mixed 2", 1, p2, p2),
+        ]
+    if fmt == LEAGUE_FORMAT_NE_WINTER:
+        mens = ("pair1_man", "pair2_man")
+        womens = ("pair1_woman", "pair2_woman")
+        p1 = ("pair1_man", "pair1_woman")
+        p2 = ("pair2_man", "pair2_woman")
+        return [
+            RubberSlot(1, "Mens Doubles", 2, mens, mens),
+            RubberSlot(2, "Womens Doubles", 2, womens, womens),
+            RubberSlot(3, "Mixed Pair 1", 2, p1, p1),
+            RubberSlot(4, "Mixed Pair 2", 2, p2, p2),
+        ]
+    # cleveland_autumn (default) — a genuine round-robin: each of the
+    # n_pairs home pairs plays each of the n_pairs away pairs exactly once,
+    # so there are always n_pairs rounds (not a fixed 3 — that only ever
+    # coincided with reality for the historical 3-pairs-per-side default;
+    # real Autumn leagues now use 2 pairs and 4 rubbers). Matches
+    # save_rubbers' sequential numbering: pair i's n_pairs rounds occupy a
+    # stride of n_pairs (rubber_number = i*n_pairs + n).
+    #
+    # sets_per_rubber is cascaded from the parent league and, despite its
+    # "descriptive only" column comment, is what actually distinguishes
+    # Summer's single set to games_per_set (e.g. 1 set to 8, no decider)
+    # from Autumn's 2-sets-to-6-plus-champion's-tiebreak.
+    n_pairs = (league.pairs_per_round if league else None) or 3
+    parent = league.parent_league if league else None
+    sets = (parent.sets_per_rubber if parent and parent.sets_per_rubber else None) or 2
+    return [
+        RubberSlot((i * n_pairs) + n, f"Pair {i + 1} vs Opposition {n}", sets)
+        for i in range(n_pairs)
+        for n in range(1, n_pairs + 1)
+    ]
+
+
+def league_format_description(parent) -> str:
+    """Plain-text description of a parent league's rubber structure and scoring.
+
+    Shown on the Parent Leagues cards in place of the old pairs/sets/games
+    badges, which only ever rendered for cleveland_autumn. `parent` is a
+    ParentLeague (or anything duck-typed with the same format/pairs_per_round/
+    games_per_set/tiebreak_at_games fields).
+    """
+    games = parent.games_per_set
+    tiebreak = parent.tiebreak_at_games
+    scoring = (
+        f"Rubbers are played first to {games} games, with a 7-point tie-break "
+        f"at {tiebreak}-{tiebreak}."
+    )
+    if parent.format == LEAGUE_FORMAT_CLEVELAND_VETERANS:
+        return (
+            "Teams of 2 women and 2 men. 6 rubbers. Opening 2 rubbers are men's and "
+            "women's doubles. Rubbers 3-6 are Mixed 1 v Mixed 1, Mixed 1 v Mixed 2, "
+            "Mixed 2 v Mixed 1, Mixed 2 v Mixed 2. " + scoring
+        )
+    if parent.format == LEAGUE_FORMAT_NE_WINTER:
+        return (
+            "Teams of 2 women and 2 men. 4 rubbers of 2 sets: men's doubles, women's "
+            "doubles, and Mixed 1 vs Mixed 1 and Mixed 2 vs Mixed 2. "
+            "All sets are played to 6 games. No tie-breaks."
+        )
+    n_pairs = parent.pairs_per_round or 3
+    sets = parent.sets_per_rubber or 2
+    intro = (
+        f"{n_pairs} pairs per side with each home pair playing each away pair i.e. "
+        f"{n_pairs * n_pairs} rubbers. "
+    )
+    if sets <= 1:
+        # A genuinely single-set rubber (e.g. Summer): no second set, no decider.
+        return intro + (
+            f"Each rubber is a single set to {games} games, with a "
+            f"7-point tie-break at {tiebreak}-{tiebreak}."
+        )
+    return intro + (
+        f"Each rubber is {sets} sets to {games} games, with a "
+        f"7-point tie-break at {tiebreak}-{tiebreak}. If the sets are shared 1-1, a champion's "
+        "tie-break to 10 points decides the rubber."
+    )
+
+
+def rubber_count_for_league(league) -> int:
+    """Return the number of rubbers a fixture in this league's format has."""
+    return len(build_rubber_plan(league))
+
+
+def walkover_max_score(league) -> int:
+    """Max fixture score awarded to the winner of a recorded walkover.
+
+    cleveland_autumn/cleveland_veterans: 2 pts/rubber win + 4 bonus pts.
+    ne_winter: pure set points, no bonus — max is simply total sets in the plan.
+    """
+    fmt = (league.format if league else None) or LEAGUE_FORMAT_CLEVELAND_AUTUMN
+    plan = build_rubber_plan(league)
+    if fmt == LEAGUE_FORMAT_NE_WINTER:
+        return sum(slot.sets for slot in plan)
+    return len(plan) * 2 + 4
+
+
+def score_from_rubber_results(rubbers) -> tuple[int, int]:
+    """Tally fixture score from rubber-level results.
+
+    2 pts per rubber win, 1 pt each side for a tied rubber, plus 4 bonus pts
+    to the side winning more rubbers overall (split 2-2 if equal). `rubbers`
+    is any iterable of objects with a `.winner` attribute in ('home', 'away',
+    'tie', None). Used by cleveland_autumn and cleveland_veterans — the two
+    formats that share this same rubber-count-based formula.
+    """
+    home_wins = away_wins = ties = 0
+    for r in rubbers:
+        if r.winner == "tie":
+            ties += 1
+        elif r.winner == "home":
+            home_wins += 1
+        elif r.winner == "away":
+            away_wins += 1
+    if home_wins > away_wins:
+        home_bonus, away_bonus = 4, 0
+    elif away_wins > home_wins:
+        home_bonus, away_bonus = 0, 4
     else:
-        return f"Round {week - 1}"
+        home_bonus, away_bonus = 2, 2
+    return (home_wins * 2 + ties + home_bonus, away_wins * 2 + ties + away_bonus)
+
+
+def score_from_set_points(rubber_slot_pairs) -> tuple[int, int]:
+    """Tally fixture score as pure set points.
+
+    1 pt per set won, summed across every rubber, with no rubber-level or
+    match-level bonus. `rubber_slot_pairs` is an iterable of (Rubber,
+    RubberSlot) pairs. A rubber with `set1_walkover` set awards its full
+    `slot.sets` points to the walkover winner. Otherwise each of the rubber's
+    `set{n}_home`/`set{n}_away` pairs is compared directly. Also sets each
+    rubber's `.winner` to 'home'/'away'/'tie' for display purposes only (e.g.
+    2-0, 0-2, or 1-1 in sets) — this does not affect the returned point
+    totals. Used only by ne_winter.
+    """
+    home_points = away_points = 0
+    for rubber, slot in rubber_slot_pairs:
+        if rubber.set1_walkover in ("home", "away"):
+            if rubber.set1_walkover == "home":
+                home_points += slot.sets
+                rubber.winner = "home"
+            else:
+                away_points += slot.sets
+                rubber.winner = "away"
+            continue
+        home_sets_won = away_sets_won = 0
+        for n in range(1, slot.sets + 1):
+            h = getattr(rubber, f"home_set{n}")
+            a = getattr(rubber, f"away_set{n}")
+            if h is None or a is None:
+                continue
+            if h > a:
+                home_points += 1
+                home_sets_won += 1
+            elif a > h:
+                away_points += 1
+                away_sets_won += 1
+        if home_sets_won > away_sets_won:
+            rubber.winner = "home"
+        elif away_sets_won > home_sets_won:
+            rubber.winner = "away"
+        else:
+            rubber.winner = "tie"
+    return (home_points, away_points)
+
+
+def rubber_winner_from_sets(
+    home_set1, away_set1, home_set2, away_set2, home_tiebreak=None, away_tiebreak=None
+) -> str | None:
+    """Winner of a rubber from 2 sets plus an optional champion tiebreak.
+
+    Used by cleveland_autumn: 2 sets to 6 games, 7-point tiebreak at 6-6; if
+    the sets split 1-1, a 10-point champion tiebreak decides the rubber
+    instead of a full third set. A set is won by whoever has the higher
+    score — an unset (None) or equal score decides nothing. If each side
+    wins exactly one set, home_tiebreak/away_tiebreak decides; otherwise
+    they're ignored. Returns 'home', 'away', or None if not yet decided.
+
+    Degenerately also correct for a single-set rubber (only home_set1/
+    away_set1 given, home_set2/away_set2 both None) — used as the pitchside
+    confirm-step winner check for cleveland_veterans, whose rubbers really
+    are just one set.
+    """
+
+    def _set_winner(h, a):
+        if h is None or a is None or h == a:
+            return None
+        return "home" if h > a else "away"
+
+    s1 = _set_winner(home_set1, away_set1)
+    if home_set2 is None and away_set2 is None:
+        # No second set at all (a genuinely single-set rubber, e.g.
+        # cleveland_veterans) — set 1 alone decides.
+        return s1
+
+    s2 = _set_winner(home_set2, away_set2)
+    home_sets = [s1, s2].count("home")
+    away_sets = [s1, s2].count("away")
+    if home_sets == 2:
+        return "home"
+    if away_sets == 2:
+        return "away"
+    if home_sets == 1 and away_sets == 1:
+        return _set_winner(home_tiebreak, away_tiebreak)
+    return None
+
+
+# ── Helper: league display grouping ────────────────────────────────────────
+
+_LEAGUE_GENDER_LABELS = {"men": "Men's", "women": "Women's", "mixed": "Mixed"}
+_LEAGUE_GENDER_RANK = {"men": 0, "women": 1, "mixed": 2, "other": 3}
+
+
+def _league_gender_category(name: str) -> str:
+    """Classify a league name as 'men', 'women', 'mixed', or 'other'.
+
+    Mirrors the same ad-hoc name-based classification already used for
+    grouping teams and divisions elsewhere in the templates, kept here so the
+    Leagues page can share it.
+    """
+    if "Women" in name:
+        return "women"
+    if "Mixed" in name:
+        return "mixed"
+    if "Men" in name:
+        return "men"
+    return "other"
+
+
+def _league_card_label(league) -> str:
+    """Return the short label ('Men's' / 'Women's' / 'Mixed') for a league's card.
+
+    Falls back to the full league name for names that don't fit the pattern,
+    since a bare 'Other' label wouldn't mean anything to a reader.
+    """
+    return _LEAGUE_GENDER_LABELS.get(_league_gender_category(league.name), league.name)
+
+
+def _league_year(league) -> int | None:
+    """Best-effort season year for a league.
+
+    A trailing 4-digit year in its name, else the year of its start date,
+    else None.
+    """
+    parts = league.name.split()
+    if parts and parts[-1].isdigit():
+        return int(parts[-1])
+    if league.start_date:
+        return league.start_date.year
+    return None
+
+
+def group_leagues_for_display(leagues) -> list[dict]:
+    """Group leagues into season sections for the Leagues page.
+
+    Leagues that share a parent league and season year (e.g. the Men's,
+    Women's, and Mixed editions of "Cleveland ... Summer League 2026") are
+    grouped into one section per season/parent-league combination, so a
+    reader sees "Summer League 2026" once with its three gender editions
+    underneath, rather than a flat, alphabetically-jumbled list of similarly
+    named leagues. Sections are ordered newest season first, and chronologically
+    within a shared year (so a Summer section sorts before an Autumn one).
+    Leagues with no parent league each get their own single-league section,
+    appended at the end in alphabetical order.
+
+    Each group also carries an "expanded" flag: only the newest season section
+    per parent league defaults open (e.g. 2027 expanded, 2026 and earlier
+    collapsed but still one click away) once that parent league has more than
+    one season on record — this is what keeps the page from becoming a wall of
+    open sections once a league has run for several years. Ungrouped
+    (no-parent-league) sections always default open since they're one-off,
+    single-league sections rather than a season history.
+    """
+    grouped: dict = {}
+    order: list = []
+    ungrouped = []
+    for league in leagues:
+        if league.parent_league:
+            year = _league_year(league)
+            key = (league.parent_league_id, year)
+            if key not in grouped:
+                grouped[key] = {
+                    "label": league.parent_league.name + (f" {year}" if year else ""),
+                    "colour": league.parent_league.colour,
+                    "year": year,
+                    "start_date": league.start_date,
+                    "parent_league_id": league.parent_league_id,
+                    "leagues": [],
+                }
+                order.append(key)
+            group = grouped[key]
+            group["leagues"].append({"league": league, "card_label": _league_card_label(league)})
+            if league.start_date and (
+                group["start_date"] is None or league.start_date < group["start_date"]
+            ):
+                group["start_date"] = league.start_date
+        else:
+            ungrouped.append(league)
+
+    groups = [grouped[key] for key in order]
+    for group in groups:
+        group["leagues"].sort(
+            key=lambda entry: (
+                _LEAGUE_GENDER_RANK[_league_gender_category(entry["league"].name)],
+                entry["league"].name,
+            )
+        )
+    groups.sort(key=lambda g: (-(g["year"] or 0), g["start_date"] or date.max))
+
+    seen_parent_ids = set()
+    for group in groups:
+        pid = group["parent_league_id"]
+        group["expanded"] = pid not in seen_parent_ids
+        seen_parent_ids.add(pid)
+
+    for league in sorted(ungrouped, key=lambda lg: lg.name):
+        groups.append(
+            {
+                "label": league.name,
+                "colour": "#6c757d",
+                "year": _league_year(league),
+                "start_date": league.start_date,
+                "parent_league_id": None,
+                "expanded": True,
+                "leagues": [{"league": league, "card_label": _league_card_label(league)}],
+            }
+        )
+    return groups
+
+
+def current_season_group(season_type) -> dict | None:
+    """Return the most recent season's Leagues for a nav badge (S/A/V/W), or None.
+
+    Scans every ParentLeague tagged with this season_type, finds the most recent
+    year among their Leagues (via _league_year, the same grouping used by
+    group_leagues_for_display), and returns that year's League rows together —
+    e.g. the Men's/Women's/Mixed editions of the current Autumn League as one
+    group. None if no ParentLeague of this type has any Leagues yet (e.g.
+    Veterans/Winter before their first season). Badge colour is not derived
+    here — see SEASON_TYPE_COLOURS, a fixed palette independent of whatever
+    colour the underlying ParentLeague happens to have.
+    """
+    if not season_type:
+        return None
+    parent_ids = [p.id for p in ParentLeague.query.filter_by(season_type=season_type).all()]
+    if not parent_ids:
+        return None
+    leagues = League.query.filter(League.parent_league_id.in_(parent_ids)).all()
+    if not leagues:
+        return None
+    latest = max(leagues, key=lambda lg: lg.start_date or date.min)
+    target_year = _league_year(latest)
+    season_leagues = sorted(
+        (lg for lg in leagues if _league_year(lg) == target_year), key=lambda lg: lg.name
+    )
+    return {
+        "year": target_year,
+        "leagues": season_leagues,
+    }
+
+
+def current_leagues_for_season_type(season_type) -> list:
+    """Return the League rows for the most recent season of a season_type, or []."""
+    group = current_season_group(season_type)
+    return group["leagues"] if group else []
 
 
 # ── Helper: eligibility check ─────────────────────────────────────────────
@@ -547,19 +1094,19 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
     """Check whether a player is eligible to play for a team in a league.
 
     Once a player's *cumulative* fixtures for a team and every higher-ranked team
-    (better division, or better letter within a division) reach the
-    team_commitment_threshold, they are tied to that team. They may move up to a
-    higher-ranked division (lower division number) but cannot play for any team in
-    the same or a lower-ranked division (e.g. 1 fixture for team A plus 2 for team C
-    reaches a threshold of 3, tying the player to team C even though neither team
-    alone hit the threshold; they're then blocked from team D and below).
+    (team rank is determined by division first, then letter within a division)
+    reach the team_commitment_threshold, they are locked to that team. They may
+    move up to a higher-ranked team but cannot play for any team ranked the same
+    or lower (e.g. 1 fixture for team A plus 2 for team C reaches a threshold of
+    3, locking the player to team C even though neither team alone hit the
+    threshold; they're then blocked from team D and below).
 
     Returns a dict with:
         - eligible (bool): whether the player can play
         - current_fixtures (int): fixtures played for this specific team in this league
         - commitment_threshold (int|None): the fixture threshold for team commitment
         - restriction_description (str|None): human-readable rule
-        - committed_to_different_team (bool): ineligible due to divisional commitment
+        - committed_to_different_team (bool): ineligible due to team commitment
         - effective_committed_team_id (int|None): id of the team the player is tied to
         - commitment_info (str|None): name of the committed team if already committed here
     """
@@ -594,7 +1141,7 @@ def check_player_eligibility(player_id: int, team_id: int, league_id: int) -> di
         commitment_threshold = restriction.team_commitment_threshold
         restriction_description = restriction.description or (
             f"Player tied to a team after {commitment_threshold} fixtures; "
-            "can only play for teams in a higher division"
+            "can only play for a higher-ranked team"
         )
 
         existing_commitment = PlayerTeamCommitment.query.filter_by(
@@ -728,3 +1275,52 @@ def check_week_conflict(player_id: int, fixture_date: date, exclude_fixture_id: 
     if squad_fixture_id:
         return Fixture.query.get(squad_fixture_id[0])
     return None
+
+
+def teams_query_for_league(league_ids):
+    """Return a Team query scoped to one or more leagues' divisions, or all teams if falsy.
+
+    Accepts a single league id or a list of ids (e.g. every gender edition under one
+    season badge) — a bare int is normalised to a one-item list.
+    """
+    if not league_ids:
+        return Team.query
+    if isinstance(league_ids, int):
+        league_ids = [league_ids]
+    return Team.query.join(Division, Team.division_id == Division.id).filter(
+        Division.league_id.in_(league_ids)
+    )
+
+
+def fixtures_query_for_league(league_ids):
+    """Return a Fixture query scoped to one or more leagues, or all fixtures if falsy.
+
+    Matches a fixture whose own league_id is one of the given leagues. A fixture with
+    no league_id recorded falls back to whichever league its home/away team's division
+    currently belongs to — mirroring the effective-league fallback used when grouping
+    fixtures for display. The fallback only applies when league_id is unset, so a
+    fixture explicitly tagged with one league stays there even if its team is later
+    reallocated to a different league's division. Accepts a single id or a list.
+    """
+    if not league_ids:
+        return Fixture.query
+    if isinstance(league_ids, int):
+        league_ids = [league_ids]
+    team_ids = [t.id for t in teams_query_for_league(league_ids).all()]
+    conditions = [Fixture.league_id.in_(league_ids)]
+    if team_ids:
+        team_match = db.or_(Fixture.home_team_id.in_(team_ids), Fixture.away_team_id.in_(team_ids))
+        conditions.append(db.and_(Fixture.league_id.is_(None), team_match))
+    return Fixture.query.filter(db.or_(*conditions))
+
+
+def players_query_for_league(league_ids):
+    """Return a Player query scoped to rosters of teams in one or more leagues, or all if falsy."""
+    if not league_ids:
+        return Player.query
+    if isinstance(league_ids, int):
+        league_ids = [league_ids]
+    team_ids = [t.id for t in teams_query_for_league(league_ids).all()]
+    if not team_ids:
+        return Player.query.filter(db.false())
+    return Player.query.filter(Player.teams.any(Team.id.in_(team_ids)))

@@ -1,0 +1,685 @@
+{% extends "pitchside_base.html" %}
+{% block title %}{{ ctx.my_team.name if ctx.my_team else 'My Team' }} — Match Day{% endblock %}
+{% block header_action %}
+    <a href="{{ url_for('pitchside_fixtures') }}" class="me-3"><i class="bi bi-arrow-left me-1"></i>Switch</a>
+    <a href="{{ url_for('pitchside_logout') }}"><i class="bi bi-box-arrow-right me-1"></i>Log out</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pair-score-card .card-header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .pair-header-names { opacity: 0.85; font-weight: 400; font-size: 0.9rem; }
+    .rubber-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+    }
+    .rubber-row.border-top { border-top: 1px solid rgba(0, 0, 0, 0.08); }
+    .rubber-row-info { min-width: 0; flex: 1; }
+    .rubber-round {
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        font-size: 0.7rem;
+        margin-bottom: 0.1rem;
+    }
+    .rubber-label { font-size: 0.95rem; line-height: 1.2; overflow-wrap: anywhere; }
+    .rubber-row-scores { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+    .rubber-score-group { width: auto; flex-shrink: 0; }
+    .rubber-score-group .score-box { width: 3rem; }
+    .rubber-score-group.d-none { display: none; }
+    .wo-toggle-btn {
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        background: #fff;
+        color: #6c757d;
+        border-radius: 6px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        padding: 0.4rem 0.5rem;
+        white-space: nowrap;
+        line-height: 1;
+    }
+    .wo-toggle-btn.wo-mine { background: #d4edda; color: #155724; border-color: transparent; }
+    .wo-toggle-btn.wo-opp { background: #cce5ff; color: #004085; border-color: transparent; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3 mt-3">
+    <h5 class="text-white mb-0">
+        {{ ctx.my_team.name if ctx.my_team else '' }}
+        <span class="text-white-50 fw-normal">vs</span>
+        {{ ctx.opp_team.name if ctx.opp_team else (ctx.fixture.away_team_name if ctx.my_side == 'home' else ctx.fixture.home_team_name) }}
+    </h5>
+    {% if league %}
+    <p class="text-white-50 small mb-0">{{ league.name }}</p>
+    {% endif %}
+    <p class="text-white-50 small mb-0">
+        {{ ctx.fixture.date.strftime('%A %d %B %Y') }}
+    </p>
+</div>
+
+<div id="save-status" class="alert alert-light small py-2 px-3 mb-3 d-none"></div>
+
+<!-- Step 1: team / pair selection -->
+<div id="pairsStep">
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-people me-2"></i>Your {% if league_format in ('cleveland_veterans', 'ne_winter') %}Squad{% else %}Pairs{% endif %}</div>
+        <div class="card-body" id="myPairsContainer"></div>
+    </div>
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-people me-2"></i>Opponent {% if league_format in ('cleveland_veterans', 'ne_winter') %}Squad{% else %}Pairs{% endif %}</div>
+        <div class="card-body" id="oppPairsContainer"></div>
+    </div>
+    <div class="d-grid mb-4">
+        <button type="button" class="btn btn-tennis btn-lg" id="continueBtn">
+            Continue to Scores <i class="bi bi-arrow-right ms-1"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Step 2: rubber scores -->
+<div id="scoresStep" class="d-none">
+    <button type="button" class="btn btn-sm btn-outline-light mb-3" id="backBtn">
+        <i class="bi bi-arrow-left me-1"></i>Back to Pairs
+    </button>
+    <div id="roundsContainer"></div>
+    <div style="height: 4.5rem;"></div>
+</div>
+
+<div class="ps-sticky-actions">
+    <button type="button" class="btn btn-outline-light" id="saveBtn">
+        <i class="bi bi-cloud-arrow-up me-1"></i>Save Progress
+    </button>
+    <button type="button" class="btn btn-tennis" id="submitBtn">
+        <i class="bi bi-check2-circle me-1"></i>Submit Final
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<datalist id="playerNamesList"></datalist>
+<script>
+const MY_SIDE = {{ ctx.my_side | tojson }};
+const N_PAIRS = {{ n_pairs }};
+const N_ROUNDS = {{ n_rounds }};
+const LEAGUE_FORMAT = {{ league_format | tojson }};
+const FIXED_SQUAD = (LEAGUE_FORMAT === 'cleveland_veterans' || LEAGUE_FORMAT === 'ne_winter');
+const RUBBER_PLAN = {{ rubber_plan_json | safe }};
+// cleveland_autumn's own rubbers are uniform (every slot reports the same
+// sets count): 1 for Summer (single set, no decider), 2 for Autumn (plus a
+// champion's tiebreak if the sets split 1-1).
+const AUTUMN_SETS = RUBBER_PLAN.length ? RUBBER_PLAN[0].sets : 2;
+const AUTUMN_MAX_SCORE = {{ autumn_games_per_set + 1 }};
+const ALL_PLAYER_NAMES = {{ all_player_names_json | safe }};
+const INITIAL_RUBBERS = {{ draft_rubbers_json | safe }};
+
+// Populate the shared predictive datalist for "my" side name inputs.
+const datalist = document.getElementById('playerNamesList');
+ALL_PLAYER_NAMES.forEach(function (name) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    datalist.appendChild(opt);
+});
+
+function mod(n, m) {
+    return ((n % m) + m) % m;
+}
+function oppIndex(i, n) {
+    return mod(i - n + 1, N_PAIRS);
+}
+// Storage/draft position for "my pair i, round n", always in HOME-pair-major
+// order (matching build_rubber_plan()'s rubber_number = home_i*N_ROUNDS+round
+// and save_rubbers' away-branch transposition) regardless of MY_SIDE — when
+// MY_SIDE is 'away', the home pair faced this round is oppIndex(i, n), not i
+// itself. manual_fixture_entry's confirm path trusts array position as the
+// canonical rubber number verbatim, so this must never be MY_SIDE's own index.
+function flatIndex(i, n) {
+    const homeI = MY_SIDE === 'home' ? i : oppIndex(i, n);
+    return homeI * N_ROUNDS + (n - 1);
+}
+
+// ── Fixed-squad formats (cleveland_veterans, ne_winter) ─────────────────────
+// No rotation: a flat RUBBER_PLAN of fixed-discipline rubbers, and a squad of
+// just 2 "mixed pairs" per side (reusing the same .my-pair-input/.opp-pair-input
+// elements and data-i/data-slot convention as the pairs-rotation format below,
+// where data-i is the pair number (0/1) and data-slot is 0=man/1=woman).
+
+function squadKeyToIndex(key) {
+    return [key.startsWith('pair1') ? 0 : 1, key.endsWith('man') ? 0 : 1];
+}
+function isSelfPairSlots(slots) {
+    return !!slots && (
+        (slots[0] === 'pair1_man' && slots[1] === 'pair1_woman') ||
+        (slots[0] === 'pair2_man' && slots[1] === 'pair2_woman')
+    );
+}
+function namesForSlots(keys, mine) {
+    return keys.map(function (key) {
+        const [i, s] = squadKeyToIndex(key);
+        const input = mine ? myPairInput(i, s) : oppPairInput(i, s);
+        return input.value.trim();
+    });
+}
+
+function buildFixedSquadPairsStep() {
+    const myContainer = document.getElementById('myPairsContainer');
+    const oppContainer = document.getElementById('oppPairsContainer');
+    for (let i = 0; i < 2; i++) {
+        myContainer.insertAdjacentHTML('beforeend', `
+            <div class="row g-2 mb-2 ${i > 0 ? 'border-top pt-2' : ''}">
+                <div class="col-12 small text-muted fw-bold">Mixed Pair ${i + 1}</div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm my-pair-input" list="playerNamesList"
+                           placeholder="Man" data-i="${i}" data-slot="0" autocomplete="off">
+                </div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm my-pair-input" list="playerNamesList"
+                           placeholder="Woman" data-i="${i}" data-slot="1" autocomplete="off">
+                </div>
+            </div>
+        `);
+        oppContainer.insertAdjacentHTML('beforeend', `
+            <div class="row g-2 mb-2 ${i > 0 ? 'border-top pt-2' : ''}">
+                <div class="col-12 small text-muted fw-bold">Mixed Pair ${i + 1}</div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm opp-pair-input"
+                           placeholder="Man" data-i="${i}" data-slot="0" autocomplete="off">
+                </div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm opp-pair-input"
+                           placeholder="Woman" data-i="${i}" data-slot="1" autocomplete="off">
+                </div>
+            </div>
+        `);
+    }
+}
+
+function buildFixedSquadScoresStep() {
+    const container = document.getElementById('roundsContainer');
+    RUBBER_PLAN.forEach(function (slot, idx) {
+        let setGroups = '';
+        for (let n = 1; n <= slot.sets; n++) {
+            setGroups += `
+                <div class="input-group input-group-sm rubber-score-group">
+                    <input type="number" inputmode="numeric" class="form-control text-center score-box my-set-${n}" min="0" max="7">
+                    <span class="input-group-text">-</span>
+                    <input type="number" inputmode="numeric" class="form-control text-center score-box opp-set-${n}" min="0" max="7">
+                </div>`;
+        }
+        container.insertAdjacentHTML('beforeend', `
+            <div class="rubber-row rubber-card ${idx > 0 ? 'border-top' : ''}" data-rn="${slot.rubber_number}" data-walkover="">
+                <div class="rubber-row-info">
+                    <div class="rubber-label fw-semibold text-dark">${slot.label}</div>
+                </div>
+                <div class="rubber-row-scores">
+                    ${setGroups}
+                    <button type="button" class="wo-toggle-btn" onclick="cycleFixedSquadWalkover(${slot.rubber_number})">W/O</button>
+                </div>
+            </div>
+        `);
+    });
+}
+
+function applyFixedSquadWalkoverUI(rn) {
+    const card = document.querySelector(`.rubber-card[data-rn="${rn}"]`);
+    const state = card.dataset.walkover || '';
+    const btn = card.querySelector('.wo-toggle-btn');
+    const groups = card.querySelectorAll('.rubber-score-group');
+    btn.classList.remove('wo-mine', 'wo-opp');
+    if (state === 'mine') {
+        btn.classList.add('wo-mine');
+        btn.textContent = 'W/O — You';
+        groups.forEach(function (g) { g.classList.add('d-none'); });
+    } else if (state === 'opp') {
+        btn.classList.add('wo-opp');
+        btn.textContent = 'W/O — Opp';
+        groups.forEach(function (g) { g.classList.add('d-none'); });
+    } else {
+        btn.textContent = 'W/O';
+        groups.forEach(function (g) { g.classList.remove('d-none'); });
+    }
+}
+
+function cycleFixedSquadWalkover(rn) {
+    const card = document.querySelector(`.rubber-card[data-rn="${rn}"]`);
+    const cur = card.dataset.walkover || '';
+    card.dataset.walkover = cur === '' ? 'mine' : (cur === 'mine' ? 'opp' : '');
+    applyFixedSquadWalkoverUI(rn);
+}
+
+function collectFixedSquadRubbers() {
+    const rubbers = [];
+    RUBBER_PLAN.forEach(function (slot) {
+        const mySlots = MY_SIDE === 'home' ? slot.home_slots : slot.away_slots;
+        const oppSlots = MY_SIDE === 'home' ? slot.away_slots : slot.home_slots;
+        const myNames = namesForSlots(mySlots, true).filter(Boolean);
+        const oppNames = namesForSlots(oppSlots, false).filter(Boolean);
+        const card = document.querySelector(`.rubber-card[data-rn="${slot.rubber_number}"]`);
+        const woState = card.dataset.walkover || '';
+        const rubber = { type: 'doubles' };
+        let walkoverSide = null;
+        if (woState === 'mine') {
+            walkoverSide = MY_SIDE;
+        } else if (woState === 'opp') {
+            walkoverSide = MY_SIDE === 'home' ? 'away' : 'home';
+        }
+        rubber.walkover = walkoverSide;
+        for (let n = 1; n <= slot.sets; n++) {
+            let mySetVal = null;
+            let oppSetVal = null;
+            if (!walkoverSide) {
+                const myInput = card.querySelector(`.my-set-${n}`);
+                const oppInput = card.querySelector(`.opp-set-${n}`);
+                mySetVal = myInput.value === '' ? null : parseInt(myInput.value, 10);
+                oppSetVal = oppInput.value === '' ? null : parseInt(oppInput.value, 10);
+            }
+            if (MY_SIDE === 'home') {
+                rubber['home_set' + n] = mySetVal;
+                rubber['away_set' + n] = oppSetVal;
+            } else {
+                rubber['away_set' + n] = mySetVal;
+                rubber['home_set' + n] = oppSetVal;
+            }
+        }
+        if (MY_SIDE === 'home') {
+            rubber.home_players = myNames;
+            rubber.away_players = oppNames;
+        } else {
+            rubber.away_players = myNames;
+            rubber.home_players = oppNames;
+        }
+        rubbers.push(rubber);
+    });
+    return rubbers;
+}
+
+function prefillFixedSquadFromDraft() {
+    if (!INITIAL_RUBBERS.length) return;
+    RUBBER_PLAN.forEach(function (slot, idx) {
+        const r = INITIAL_RUBBERS[idx];
+        if (!r) return;
+        const mySlots = MY_SIDE === 'home' ? slot.home_slots : slot.away_slots;
+        const oppSlotsForMe = MY_SIDE === 'home' ? slot.away_slots : slot.home_slots;
+        const mine = MY_SIDE === 'home' ? r.home_players : r.away_players;
+        const opp = MY_SIDE === 'home' ? r.away_players : r.home_players;
+        if (isSelfPairSlots(mySlots) && mine) {
+            const [i] = squadKeyToIndex(mySlots[0]);
+            if (mine[0]) myPairInput(i, 0).value = mine[0];
+            if (mine[1]) myPairInput(i, 1).value = mine[1];
+        }
+        if (isSelfPairSlots(oppSlotsForMe) && opp) {
+            const [i] = squadKeyToIndex(oppSlotsForMe[0]);
+            if (opp[0]) oppPairInput(i, 0).value = opp[0];
+            if (opp[1]) oppPairInput(i, 1).value = opp[1];
+        }
+        const card = document.querySelector(`.rubber-card[data-rn="${slot.rubber_number}"]`);
+        for (let n = 1; n <= slot.sets; n++) {
+            const myVal = MY_SIDE === 'home' ? r['home_set' + n] : r['away_set' + n];
+            const oppVal = MY_SIDE === 'home' ? r['away_set' + n] : r['home_set' + n];
+            if (myVal !== null && myVal !== undefined) card.querySelector(`.my-set-${n}`).value = myVal;
+            if (oppVal !== null && oppVal !== undefined) card.querySelector(`.opp-set-${n}`).value = oppVal;
+        }
+        if (r.walkover === 'home' || r.walkover === 'away') {
+            card.dataset.walkover = r.walkover === MY_SIDE ? 'mine' : 'opp';
+        }
+        applyFixedSquadWalkoverUI(slot.rubber_number);
+    });
+}
+
+// ── cleveland_autumn (default) — pairs rotation ──────────────────────────────
+
+function buildPairsStep() {
+    const myContainer = document.getElementById('myPairsContainer');
+    const oppContainer = document.getElementById('oppPairsContainer');
+    for (let i = 0; i < N_PAIRS; i++) {
+        myContainer.insertAdjacentHTML('beforeend', `
+            <div class="row g-2 mb-2 ${i > 0 ? 'border-top pt-2' : ''}">
+                <div class="col-12 small text-muted fw-bold">Pair ${i + 1}</div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm my-pair-input" list="playerNamesList"
+                           placeholder="Player 1" data-i="${i}" data-slot="0" autocomplete="off">
+                </div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm my-pair-input" list="playerNamesList"
+                           placeholder="Player 2" data-i="${i}" data-slot="1" autocomplete="off">
+                </div>
+            </div>
+        `);
+        oppContainer.insertAdjacentHTML('beforeend', `
+            <div class="row g-2 mb-2 ${i > 0 ? 'border-top pt-2' : ''}">
+                <div class="col-12 small text-muted fw-bold">Pair ${i + 1}</div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm opp-pair-input"
+                           placeholder="Player 1" data-i="${i}" data-slot="0" autocomplete="off">
+                </div>
+                <div class="col-6">
+                    <input type="text" class="form-control form-control-sm opp-pair-input"
+                           placeholder="Player 2" data-i="${i}" data-slot="1" autocomplete="off">
+                </div>
+            </div>
+        `);
+    }
+}
+
+function myPairInput(i, slot) {
+    return document.querySelector(`.my-pair-input[data-i="${i}"][data-slot="${slot}"]`);
+}
+function oppPairInput(i, slot) {
+    return document.querySelector(`.opp-pair-input[data-i="${i}"][data-slot="${slot}"]`);
+}
+function myPairNames(i) {
+    return [myPairInput(i, 0).value.trim(), myPairInput(i, 1).value.trim()];
+}
+function oppPairNames(i) {
+    return [oppPairInput(i, 0).value.trim(), oppPairInput(i, 1).value.trim()];
+}
+function pairLabel(names, fallback) {
+    const joined = names.filter(Boolean).join(' & ');
+    return joined || fallback;
+}
+
+function buildScoresStep() {
+    const container = document.getElementById('roundsContainer');
+    for (let i = 0; i < N_PAIRS; i++) {
+        let rowsHtml = '';
+        // Rows within a pair's block are listed in ascending opponent-pair
+        // order (Opponent 1, 2, 3...), matching the main app's fixture grid
+        // (fixture_detail.html's "Opposition 1/2/3" columns) — not in the
+        // round-robin's chronological round order, which visits opponents in
+        // a rotated sequence.
+        const rounds = [];
+        for (let n = 1; n <= N_ROUNDS; n++) {
+            rounds.push({ n: n, j: oppIndex(i, n) });
+        }
+        rounds.sort(function (a, b) { return a.j - b.j; });
+        rounds.forEach(function (round, idx) {
+            const n = round.n, j = round.j;
+            const set2Html = AUTUMN_SETS > 1 ? `
+                            <div class="input-group input-group-sm">
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box my-set-2" min="0" max="${AUTUMN_MAX_SCORE}">
+                                <span class="input-group-text">-</span>
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box opp-set-2" min="0" max="${AUTUMN_MAX_SCORE}">
+                            </div>
+                            <div class="input-group input-group-sm tiebreak-group d-none">
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box my-tb" min="0" max="30">
+                                <span class="input-group-text">-</span>
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box opp-tb" min="0" max="30">
+                            </div>` : '';
+            rowsHtml += `
+                <div class="rubber-row rubber-card ${idx > 0 ? 'border-top' : ''}" data-i="${i}" data-n="${n}" data-walkover="">
+                    <div class="rubber-row-info">
+                        <div class="rubber-round text-muted">Round ${n}</div>
+                        <div class="rubber-label fw-semibold text-dark" data-i="${i}" data-n="${n}" data-j="${j}">
+                            vs Opponent ${j + 1}
+                        </div>
+                    </div>
+                    <div class="rubber-row-scores">
+                        <div class="rubber-score-group d-flex flex-column gap-1">
+                            <div class="input-group input-group-sm">
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box my-set-1" min="0" max="${AUTUMN_MAX_SCORE}">
+                                <span class="input-group-text">-</span>
+                                <input type="number" inputmode="numeric" class="form-control text-center score-box opp-set-1" min="0" max="${AUTUMN_MAX_SCORE}">
+                            </div>
+                            ${set2Html}
+                        </div>
+                        <button type="button" class="wo-toggle-btn" onclick="cycleWalkover(${i}, ${n})">W/O</button>
+                    </div>
+                </div>
+            `;
+        });
+        container.insertAdjacentHTML('beforeend', `
+            <div class="card mb-3 pair-score-card">
+                <div class="card-header pair-header" data-i="${i}">
+                    <span><i class="bi bi-people-fill me-2"></i>Pair ${i + 1}</span>
+                    <span class="pair-header-names"></span>
+                </div>
+                <div class="card-body p-0">
+                    ${rowsHtml}
+                </div>
+            </div>
+        `);
+    }
+}
+
+function applyWalkoverUI(i, n) {
+    const card = document.querySelector(`.rubber-card[data-i="${i}"][data-n="${n}"]`);
+    const state = card.dataset.walkover || '';
+    const btn = card.querySelector('.wo-toggle-btn');
+    const scoreGroup = card.querySelector('.rubber-score-group');
+    btn.classList.remove('wo-mine', 'wo-opp');
+    if (state === 'mine') {
+        btn.classList.add('wo-mine');
+        btn.textContent = 'W/O — You';
+        scoreGroup.classList.add('d-none');
+    } else if (state === 'opp') {
+        btn.classList.add('wo-opp');
+        btn.textContent = 'W/O — Opp';
+        scoreGroup.classList.add('d-none');
+    } else {
+        btn.textContent = 'W/O';
+        scoreGroup.classList.remove('d-none');
+    }
+}
+
+function cycleWalkover(i, n) {
+    const card = document.querySelector(`.rubber-card[data-i="${i}"][data-n="${n}"]`);
+    const cur = card.dataset.walkover || '';
+    card.dataset.walkover = cur === '' ? 'mine' : (cur === 'mine' ? 'opp' : '');
+    applyWalkoverUI(i, n);
+}
+
+function updateTiebreakVisibility(card) {
+    const tbGroup = card.querySelector('.tiebreak-group');
+    if (!tbGroup) return;
+    const my1 = card.querySelector('.my-set-1').value, opp1 = card.querySelector('.opp-set-1').value;
+    const my2 = card.querySelector('.my-set-2').value, opp2 = card.querySelector('.opp-set-2').value;
+    let split = false;
+    if (my1 !== '' && opp1 !== '' && my2 !== '' && opp2 !== '') {
+        const w1 = Number(my1) > Number(opp1) ? 'mine' : (Number(opp1) > Number(my1) ? 'opp' : null);
+        const w2 = Number(my2) > Number(opp2) ? 'mine' : (Number(opp2) > Number(my2) ? 'opp' : null);
+        split = w1 && w2 && w1 !== w2;
+    }
+    const myTb = card.querySelector('.my-tb'), oppTb = card.querySelector('.opp-tb');
+    const hasTbValue = myTb.value !== '' || oppTb.value !== '';
+    tbGroup.classList.toggle('d-none', !(split || hasTbValue));
+    if (!split && !hasTbValue) { myTb.value = ''; oppTb.value = ''; }
+}
+
+function refreshScoreLabels() {
+    for (let i = 0; i < N_PAIRS; i++) {
+        const namesEl = document.querySelector(`.pair-header[data-i="${i}"] .pair-header-names`);
+        if (namesEl) {
+            const mine = myPairNames(i).filter(Boolean).join(' & ');
+            namesEl.textContent = mine ? '— ' + mine : '';
+        }
+    }
+    document.querySelectorAll('.rubber-label').forEach(function (el) {
+        const j = parseInt(el.dataset.j, 10);
+        const opp = pairLabel(oppPairNames(j), `Opponent ${j + 1}`);
+        el.textContent = 'vs ' + opp;
+    });
+}
+
+document.getElementById('continueBtn').addEventListener('click', function () {
+    if (!FIXED_SQUAD) refreshScoreLabels();
+    document.getElementById('pairsStep').classList.add('d-none');
+    document.getElementById('scoresStep').classList.remove('d-none');
+    window.scrollTo(0, 0);
+});
+document.getElementById('backBtn').addEventListener('click', function () {
+    document.getElementById('scoresStep').classList.add('d-none');
+    document.getElementById('pairsStep').classList.remove('d-none');
+    window.scrollTo(0, 0);
+});
+
+function collectRubbers() {
+    return FIXED_SQUAD ? collectFixedSquadRubbers() : collectAutumnRubbers();
+}
+
+function collectAutumnRubbers() {
+    const rubbers = new Array(N_PAIRS * N_ROUNDS).fill(null);
+    for (let i = 0; i < N_PAIRS; i++) {
+        const myNames = myPairNames(i).filter(Boolean);
+        for (let n = 1; n <= N_ROUNDS; n++) {
+            const j = oppIndex(i, n);
+            const oppNames = oppPairNames(j).filter(Boolean);
+            const card = document.querySelector(`.rubber-card[data-i="${i}"][data-n="${n}"]`);
+            const woState = card.dataset.walkover || '';
+
+            function sv(sel) {
+                const el = card.querySelector(sel);
+                if (!el || el.value === '') return null;
+                return parseInt(el.value, 10);
+            }
+
+            const rubber = { type: 'doubles' };
+            let mySet1 = null, oppSet1 = null, mySet2 = null, oppSet2 = null, myTb = null, oppTb = null;
+            let walkoverSide = null;
+            if (woState === 'mine') {
+                walkoverSide = MY_SIDE;
+            } else if (woState === 'opp') {
+                walkoverSide = MY_SIDE === 'home' ? 'away' : 'home';
+            } else {
+                mySet1 = sv('.my-set-1');
+                oppSet1 = sv('.opp-set-1');
+                mySet2 = sv('.my-set-2');
+                oppSet2 = sv('.opp-set-2');
+                myTb = sv('.my-tb');
+                oppTb = sv('.opp-tb');
+            }
+            rubber.walkover = walkoverSide;
+            if (MY_SIDE === 'home') {
+                rubber.home_set1 = mySet1; rubber.away_set1 = oppSet1;
+                rubber.home_set2 = mySet2; rubber.away_set2 = oppSet2;
+                rubber.home_set3 = myTb; rubber.away_set3 = oppTb;
+            } else {
+                rubber.away_set1 = mySet1; rubber.home_set1 = oppSet1;
+                rubber.away_set2 = mySet2; rubber.home_set2 = oppSet2;
+                rubber.away_set3 = myTb; rubber.home_set3 = oppTb;
+            }
+            if (MY_SIDE === 'home') {
+                rubber.home_players = myNames;
+                rubber.away_players = oppNames;
+            } else {
+                rubber.away_players = myNames;
+                rubber.home_players = oppNames;
+            }
+            rubbers[flatIndex(i, n)] = rubber;
+        }
+    }
+    return rubbers;
+}
+
+function prefillFromDraft() {
+    if (!INITIAL_RUBBERS.length) return;
+    const oppFilled = Array(N_PAIRS).fill(false);
+    for (let i = 0; i < N_PAIRS; i++) {
+        let myNamesSet = false;
+        for (let n = 1; n <= N_ROUNDS; n++) {
+            const r = INITIAL_RUBBERS[flatIndex(i, n)];
+            if (!r) continue;
+            const mine = MY_SIDE === 'home' ? r.home_players : r.away_players;
+            const opp = MY_SIDE === 'home' ? r.away_players : r.home_players;
+
+            if (!myNamesSet && mine && (mine[0] || mine[1])) {
+                myPairInput(i, 0).value = mine[0] || '';
+                myPairInput(i, 1).value = mine[1] || '';
+                myNamesSet = true;
+            }
+            const j = oppIndex(i, n);
+            if (!oppFilled[j] && opp && (opp[0] || opp[1])) {
+                oppPairInput(j, 0).value = opp[0] || '';
+                oppPairInput(j, 1).value = opp[1] || '';
+                oppFilled[j] = true;
+            }
+
+            const card = document.querySelector(`.rubber-card[data-i="${i}"][data-n="${n}"]`);
+            const myVal1 = MY_SIDE === 'home' ? r.home_set1 : r.away_set1;
+            const oppVal1 = MY_SIDE === 'home' ? r.away_set1 : r.home_set1;
+            if (myVal1 !== null && myVal1 !== undefined) card.querySelector('.my-set-1').value = myVal1;
+            if (oppVal1 !== null && oppVal1 !== undefined) card.querySelector('.opp-set-1').value = oppVal1;
+            const myVal2 = MY_SIDE === 'home' ? r.home_set2 : r.away_set2;
+            const oppVal2 = MY_SIDE === 'home' ? r.away_set2 : r.home_set2;
+            const mySet2El = card.querySelector('.my-set-2'), oppSet2El = card.querySelector('.opp-set-2');
+            if (mySet2El && myVal2 !== null && myVal2 !== undefined) mySet2El.value = myVal2;
+            if (oppSet2El && oppVal2 !== null && oppVal2 !== undefined) oppSet2El.value = oppVal2;
+            const myTb = MY_SIDE === 'home' ? r.home_set3 : r.away_set3;
+            const oppTb = MY_SIDE === 'home' ? r.away_set3 : r.home_set3;
+            const myTbEl = card.querySelector('.my-tb'), oppTbEl = card.querySelector('.opp-tb');
+            if (myTbEl && myTb !== null && myTb !== undefined) myTbEl.value = myTb;
+            if (oppTbEl && oppTb !== null && oppTb !== undefined) oppTbEl.value = oppTb;
+            updateTiebreakVisibility(card);
+
+            if (r.walkover === 'home' || r.walkover === 'away') {
+                card.dataset.walkover = r.walkover === MY_SIDE ? 'mine' : 'opp';
+            }
+            applyWalkoverUI(i, n);
+        }
+    }
+    refreshScoreLabels();
+}
+
+function showStatus(msg, ok) {
+    const el = document.getElementById('save-status');
+    el.textContent = msg;
+    el.className = 'alert small py-2 px-3 mb-3 ' + (ok ? 'alert-success' : 'alert-danger');
+}
+
+function postRubbers(url, onDone) {
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rubbers: collectRubbers() }),
+    })
+        .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+        .then(function (res) {
+            if (res.ok) {
+                onDone(res.data);
+            } else {
+                showStatus(res.data.error || 'Something went wrong — please try again.', false);
+            }
+        })
+        .catch(function () {
+            showStatus('Network error — your changes are still on this page, try again.', false);
+        });
+}
+
+document.getElementById('saveBtn').addEventListener('click', function () {
+    postRubbers('{{ url_for("pitchside_save") }}', function () {
+        showStatus('Saved just now.', true);
+    });
+});
+document.getElementById('submitBtn').addEventListener('click', function () {
+    if (!window.confirm('Submit the finalised scoresheet? You can still make changes and save afterwards if needed.')) return;
+    postRubbers('{{ url_for("pitchside_submit") }}', function () {
+        showStatus('Submitted — ask your captain or admin to confirm this in the app after the match.', true);
+    });
+});
+
+if (FIXED_SQUAD) {
+    buildFixedSquadPairsStep();
+    buildFixedSquadScoresStep();
+    prefillFixedSquadFromDraft();
+} else {
+    buildPairsStep();
+    buildScoresStep();
+    prefillFromDraft();
+    document.getElementById('roundsContainer').addEventListener('input', function (e) {
+        if (!e.target.classList) return;
+        if (e.target.classList.contains('my-set-1') || e.target.classList.contains('opp-set-1') ||
+            e.target.classList.contains('my-set-2') || e.target.classList.contains('opp-set-2')) {
+            const card = e.target.closest('.rubber-card');
+            if (card) updateTiebreakVisibility(card);
+        }
+    });
+}
+</script>
+{% endblock %}

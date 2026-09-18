@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Captain's Handbook — Team Tracker{% endblock %}
+
+{% block extra_css %}
+<style>
+.help-section { scroll-margin-top: 80px; }
+.help-toc { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+.help-toc li { counter-increment: toc; padding: 0.25rem 0; border-bottom: 1px solid #e9ecef; }
+.help-toc li:last-child { border-bottom: none; }
+.help-toc li::before { content: counter(toc) ". "; color: #adb5bd; font-size: 0.85rem; }
+.help-toc a { color: #1a6b50; text-decoration: none; font-size: 0.9rem; }
+.help-toc a:hover { text-decoration: underline; }
+.req-login {
+    display: inline-block;
+    background: #fff8e1;
+    color: #856404;
+    border: 1px solid #ffe082;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.45rem;
+    vertical-align: middle;
+    margin-left: 0.3rem;
+    font-weight: 500;
+}
+.req-admin {
+    display: inline-block;
+    background: #fde8e8;
+    color: #842029;
+    border: 1px solid #f5c2c7;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.45rem;
+    vertical-align: middle;
+    margin-left: 0.3rem;
+    font-weight: 500;
+}
+.help-body h3 { color: #0f4c3a; font-size: 1rem; font-weight: 600; margin-top: 1.4rem; margin-bottom: 0.3rem; }
+.help-body p, .help-body li { color: #333; font-size: 0.95rem; line-height: 1.65; }
+.help-body ul, .help-body ol { padding-left: 1.4rem; margin-bottom: 0.8rem; }
+.help-body li { margin-bottom: 0.2rem; }
+.help-body strong { color: #1a1a1a; }
+.help-body em { color: #6c757d; }
+.help-body code {
+    background: #f0f7f4;
+    border-radius: 3px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.88em;
+    color: #0f4c3a;
+}
+.help-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0.6rem 0 1rem; }
+.help-table th {
+    background: #0f4c3a;
+    color: #fff;
+    padding: 0.4rem 0.7rem;
+    text-align: left;
+    font-weight: 600;
+}
+.help-table td {
+    padding: 0.38rem 0.7rem;
+    color: #333;
+    border-bottom: 1px solid #c8d6d0;
+    vertical-align: top;
+}
+.help-table tr:last-child td { border-bottom: none; }
+.help-table td:first-child { font-weight: 500; color: #1a1a1a; }
+.status-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    margin-right: 0.4rem;
+}
+.status-dot.green { background: #198754; }
+.status-dot.amber { background: #ffc107; }
+.status-dot.red { background: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-trophy-fill me-2"></i>Captain's Handbook</h2>
+    <a href="{{ url_for('help_page') }}" class="btn btn-sm btn-outline-light">
+        <i class="bi bi-arrow-left me-1"></i>Back to Help
+    </a>
+</div>
+
+<div class="alert alert-secondary d-flex align-items-start mb-4" role="alert">
+    <i class="bi bi-info-circle me-2 fs-4"></i>
+    <div>
+        <strong>This page is written for team captains.</strong> A captain can manage squads, scores, and match fees for their own team's fixtures — not for other teams, and not league/roster setup itself. For everything else (or an admin's view of the app), see the full <a href="{{ url_for('help_page') }}">Help</a> page.
+    </div>
+</div>
+
+<div class="row g-4">
+
+    <!-- Sidebar table of contents -->
+    <div class="col-lg-3">
+        <div class="card sticky-top" style="top: 80px;">
+            <div class="card-header"><i class="bi bi-list me-2"></i>Contents</div>
+            <div class="card-body py-2 px-3">
+                <ul class="help-toc">
+                    <li><a href="#cg1">Getting access</a></li>
+                    <li><a href="#cg2">Setting up your team</a></li>
+                    <li><a href="#cg3">Picking a squad</a></li>
+                    <li><a href="#cg4">Entering results</a></li>
+                    <li><a href="#cg5">The Match Day portal</a></li>
+                    <li><a href="#cg6">Quick reference</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="col-lg-9 help-body">
+
+        <!-- 1 -->
+        <div class="card mb-4 help-section" id="cg1">
+            <div class="card-header"><i class="bi bi-box-arrow-in-right me-2"></i>1. Getting access</div>
+            <div class="card-body">
+                <p>Captain accounts are set up by an admin, and sign in the same way as everyone else.</p>
+                <ol>
+                    <li>Ask an admin to add you at <strong>Admin &rarr; User Access</strong>, with the <strong>Captain</strong> access level and your player profile linked. This is also what marks you as captain of your team.</li>
+                    <li>Go to <code>/login</code>, enter your email, and click <strong>Send sign-in link</strong>.</li>
+                    <li>Open the email and click the link — you're in. No password to remember.</li>
+                </ol>
+                <p><em>Only one person can be signed in to the main site at a time. If someone else is logged in, you'll see how long is left on their session. This doesn't affect the separate Match Day portal (section 5) — any number of captains can be in that at once, independently of the main site.</em></p>
+            </div>
+        </div>
+
+        <!-- 2 -->
+        <div class="card mb-4 help-section" id="cg2">
+            <div class="card-header"><i class="bi bi-people me-2"></i>2. Setting up your team</div>
+            <div class="card-body">
+                <p>Once signed in, open your team from the <strong>Teams</strong> page.</p>
+
+                <h3>What you can change <span class="req-login">captain or admin</span></h3>
+                <ul>
+                    <li><strong>Team name and match fees</strong> — click <strong>Edit</strong> on your team's page. Toggling match fees on adds a fee-tracking section to every fixture (see section 4).</li>
+                </ul>
+
+                <h3>What an admin still handles</h3>
+                <ul>
+                    <li>Adding or removing players from your roster</li>
+                    <li>Registering a brand-new player who's never played for the club before</li>
+                    <li>Assigning or changing who the captain is</li>
+                </ul>
+                <p>Your actual "team setup," day to day, is really squad selection per fixture — that's section 3.</p>
+            </div>
+        </div>
+
+        <!-- 3 -->
+        <div class="card mb-4 help-section" id="cg3">
+            <div class="card-header"><i class="bi bi-person-check me-2"></i>3. Picking a squad</div>
+            <div class="card-body">
+                <p>A squad is who you're planning to field for a fixture, reserved ahead of time so eligibility issues surface early — not the final rubber-by-rubber pairing.</p>
+                <ol>
+                    <li>Open the fixture — from <strong>Teams &rarr; Weekly Allocation</strong> (pick your league to see the whole week at once), or from the fixture's own page.</li>
+                    <li>Tick the players you want in the <strong>Squad</strong> section.</li>
+                    <li>Click <strong>Save Squad</strong>. If a selection would tie a player to your team for the season, you'll see a confirmation before it saves.</li>
+                </ol>
+
+                <h3>Reading eligibility</h3>
+                <p>Each player in the squad picker shows a status dot:</p>
+                <p><span class="status-dot green"></span><strong>Green</strong> — already tied to your team this season. All good.</p>
+                <p><span class="status-dot amber"></span><strong>Amber</strong> — fine to pick, but selecting them will tie them to your team going forward, locking them out of any lower-ranked team.</p>
+                <p><span class="status-dot red"></span><strong>Red</strong> — ineligible. They're already tied to a different team at the same level or below.</p>
+                <p><em>A player's fixtures for your team also count toward every team ranked below yours. Once their combined total across your team and lower ones hits the league's threshold, they're locked to the lowest team they've played for — they can still move up, never down.</em></p>
+            </div>
+        </div>
+
+        <!-- 4 -->
+        <div class="card mb-4 help-section" id="cg4">
+            <div class="card-header"><i class="bi bi-pencil-square me-2"></i>4. Entering results</div>
+            <div class="card-body">
+                <p>You can enter results directly on a fixture page any time — the Match Day portal in section 5 is simply the courtside shortcut for the same job.</p>
+                <ol>
+                    <li>Open the fixture and select the players for each rubber from the dropdowns — score boxes unlock once both are chosen.</li>
+                    <li>Fill in the set scores. Use <strong>T</strong> to mark a tie, or <strong>W</strong> to cycle through a walkover (your side &rarr; opponent &rarr; cleared).</li>
+                    <li>Click <strong>Save Results</strong> once every rubber is complete — it only activates when the grid is full. The fixture's overall score updates automatically.</li>
+                </ol>
+                <p><strong>Match fees:</strong> if you've turned on match fees for your team (section 2), a Fees section appears on the fixture page — tick players off as they pay and click <strong>Save Fees</strong>.</p>
+            </div>
+        </div>
+
+        <!-- 5 -->
+        <div class="card mb-4 help-section" id="cg5">
+            <div class="card-header"><i class="bi bi-phone me-2"></i>5. The Match Day portal</div>
+            <div class="card-body">
+                <p>A separate, phone-friendly login for filling in a scoresheet courtside — a memory aid alongside your paper scorecard. Nothing you enter here touches the real fixture until you review and confirm it afterwards.</p>
+
+                <h3>Logging in courtside</h3>
+                <ol>
+                    <li>On the sign-in page, follow <strong>"Captain at a match?"</strong> — or go straight to <code>/pitchside/login</code>.</li>
+                    <li>Enter your email and the <strong>last 4 digits of your LTA number</strong>. No password, no sign-in link — you're straight in.</li>
+                    <li>Pick the fixture you're at (or preparing for) from the list. It shows today plus the next several days, so you can enter your pairs in advance and add scores once they're actually played.</li>
+                </ol>
+
+                <h3>Filling in the scoresheet</h3>
+                <p>It's a two-step wizard: pairs, then scores.</p>
+                <ol>
+                    <li><strong>Pairs</strong> — type in your pairs (suggestions are limited to your own team's roster) and the opponent's pairs (typed freely, no suggestions). Tap <strong>Continue to Scores</strong>.</li>
+                    <li><strong>Scores</strong> — fill in whichever rubbers have finished, in any order, as results come in. Tap <strong>W/O</strong> on a rubber to mark a walkover instead — tap again to switch sides, again to clear.</li>
+                </ol>
+                <p><strong>Save Progress</strong> is safe to use anytime — nothing's final yet. <strong>Submit Final</strong> marks the scoresheet ready for review.</p>
+
+                <h3>Confirming afterwards <span class="req-login">captain or admin</span></h3>
+                <p>Once submitted, a banner appears on the fixture's real page for you (or an admin) to review. It opens the normal results form, pre-filled from what you entered courtside — check it over, fix anything, and save to write it into the fixture for real.</p>
+                <p><em>If a name you typed doesn't match any existing player, confirming is blocked — you'll need to ask an admin to register them first, then come back and save. This only applies to your own players; opponent names are never registered, just kept for reference on the confirm screen.</em></p>
+            </div>
+        </div>
+
+        <!-- 6 -->
+        <div class="card mb-4 help-section" id="cg6">
+            <div class="card-header"><i class="bi bi-list-check me-2"></i>6. Quick reference</div>
+            <div class="card-body">
+                <p>What's yours to do, at a glance.</p>
+                <table class="help-table">
+                    <tr><th>Task</th><th>Where</th></tr>
+                    <tr><td>Rename team / toggle match fees</td><td>Team page &rarr; <strong>Edit</strong></td></tr>
+                    <tr><td>Reserve a squad</td><td>Fixture page, or Teams &rarr; Weekly Allocation</td></tr>
+                    <tr><td>Enter or fix a result</td><td>Fixture page &rarr; rubber grid &rarr; <strong>Save Results</strong></td></tr>
+                    <tr><td>Record match fees paid</td><td>Fixture page &rarr; Fees section</td></tr>
+                    <tr><td>Reschedule or edit fixture details</td><td>Fixture page &rarr; <strong>Edit</strong></td></tr>
+                    <tr><td>Enter scores from courtside</td><td><code>/pitchside/login</code></td></tr>
+                    <tr><td>Add a player, change captain, register a new opponent-turned-member</td><td>Ask an admin</td></tr>
+                </table>
+                <p class="text-muted small mt-2"><i class="bi bi-info-circle me-1"></i>Scope: your own team's fixtures only — captains can't edit another team's squads or results.</p>
+            </div>
+        </div>
+
+    </div><!-- /col -->
+</div><!-- /row -->
+{% endblock %}

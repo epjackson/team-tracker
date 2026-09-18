@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <title>{% block title %}Match Day — Team Tracker{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        html, body {
+            background: linear-gradient(135deg, #0f4c3a 0%, #1a6b50 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+        input, select, textarea, button { font-size: 1rem; }
+        .ps-header {
+            background: rgba(10, 40, 30, 0.97);
+            color: #fff;
+            padding: 0.85rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .ps-header .ps-brand { font-weight: 700; }
+        .ps-header .ps-brand i { color: #90ee90; }
+        .ps-header a { color: #90ee90; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+        .ps-container { max-width: 560px; margin: 0 auto; padding: 1rem 1rem 5rem; }
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+        .card-header {
+            background: linear-gradient(135deg, #1a6b50, #0f4c3a);
+            color: white;
+            border-radius: 12px 12px 0 0 !important;
+            font-weight: 600;
+        }
+        .btn-tennis {
+            background: linear-gradient(135deg, #1a6b50, #0f4c3a);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .btn-tennis:hover { background: linear-gradient(135deg, #228b22, #1a6b50); color: white; }
+        .btn-tennis:disabled { opacity: 0.6; }
+        .alert { border-radius: 8px; }
+        .score-box { width: 3.5rem; padding-left: 0.25rem; padding-right: 0.25rem; }
+        .rubber-card { background: #f8f9fa; border-left: 4px solid #1a6b50; }
+        .ps-sticky-actions {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: rgba(10, 40, 30, 0.97);
+            padding: 0.75rem 1rem;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            z-index: 10;
+        }
+        .ps-sticky-actions .btn { flex: 1; max-width: 260px; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="ps-header">
+        <span class="ps-brand"><i class="bi bi-circle-fill me-1"></i>Match Day</span>
+        {% block header_action %}{% endblock %}
+    </div>
+    <div class="ps-container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} mt-3 mb-0">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

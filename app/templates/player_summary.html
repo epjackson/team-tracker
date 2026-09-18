@@ -39,7 +39,10 @@ thead .elig-name-col {
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="text-white mb-0"><i class="bi bi-person-workspace me-2"></i>Players</h2>
+    <div>
+        <h2 class="text-white mb-0"><i class="bi bi-person-workspace me-2"></i>Players</h2>
+        <small class="text-white-50">Showing: {{ selected_season_label }}</small>
+    </div>
     <div class="d-flex gap-2 align-items-center">
         <div class="btn-group" role="group" aria-label="View toggle">
             <button type="button" class="btn btn-tennis active" id="btnViewPlayers">
@@ -240,7 +243,8 @@ thead .elig-name-col {
                     {% for player in players %}
                     <tr>
                         <td class="fw-bold">
-                            <a href="{{ url_for('player_detail', player_id=player.id) }}" class="text-decoration-none">
+                            <a href="{{ url_for('player_detail', player_id=player.id) }}"
+                               class="text-decoration-none {% if player.membership_status == 'inactive' %}player-inactive{% endif %}">
                                 {{ player.name }}
                             </a>
                             {% if player.captaincies %}
@@ -286,11 +290,13 @@ thead .elig-name-col {
                             <a href="{{ url_for('edit_player', player_id=player.id) }}" class="btn btn-sm btn-outline-secondary" title="Edit">
                                 <i class="bi bi-pencil"></i>
                             </a>
+                            {% if player.membership_status == 'active' %}
                             <button type="button" class="btn btn-sm btn-outline-danger"
                                     data-bs-toggle="modal" data-bs-target="#deletePlayerModal{{ player.id }}"
-                                    title="Delete">
-                                <i class="bi bi-trash"></i>
+                                    title="Deactivate">
+                                <i class="bi bi-slash-circle"></i>
                             </button>
+                            {% endif %}
                             {% endif %}
                         </td>
                     </tr>
@@ -302,35 +308,37 @@ thead .elig-name-col {
 </div>
 
 {% if is_admin %}
-<!-- Delete modals -->
+<!-- Deactivate modals -->
 {% for player in players %}
+{% if player.membership_status == 'active' %}
 <div class="modal fade" id="deletePlayerModal{{ player.id }}" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('delete_player', player_id=player.id) }}">
+            <form method="POST" action="{{ url_for('deactivate_player', player_id=player.id) }}">
                 <div class="modal-header bg-danger">
-                    <h5 class="modal-title text-white">Delete Player</h5>
+                    <h5 class="modal-title text-white">Deactivate Player</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
-                    <p>Are you sure you want to delete <strong>{{ player.name }}</strong>?</p>
+                    <p>Are you sure you want to deactivate <strong>{{ player.name }}</strong>?</p>
                     <ul class="text-muted">
-                        <li>Remove player profile</li>
-                        <li>Delete {{ player.total_matches }} fixture record(s)</li>
-                        <li>Remove from {{ player.total_teams }} team(s)</li>
+                        <li>Their profile, fixture history, and team memberships are kept — nothing is deleted</li>
+                        <li>Their name will appear faded throughout the app</li>
+                        <li>They can no longer be newly selected for squads, rubbers, or captaincy</li>
+                        <li>Reactivate any time via Edit → Membership Status</li>
                     </ul>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Delete Player</button>
+                    <button type="submit" class="btn btn-danger">Deactivate Player</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endif %}
 {% endfor %}
-{% endif %}{# logged_in — delete modals #}
+{% endif %}{# logged_in — deactivate modals #}
 
 {% else %}
 <div class="card">

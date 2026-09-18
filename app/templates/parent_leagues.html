@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Parent Leagues — Team Tracker{% endblock %}
+
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
+{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-white mb-0"><i class="bi bi-palette me-2"></i>Parent Leagues</h2>
+</div>
+
+<p class="text-white-50">
+    A parent league locks in the doubles format (pairs per round, sets, games, tie-break) shared
+    by all the leagues under it, plus a colour used to tell them apart at a glance.
+    <a href="{{ url_for('list_leagues') }}" class="text-white">Back to Leagues</a>
+</p>
+
+{% if parents %}
+<div class="row g-4">
+    {% for parent in parents %}
+    <div class="col-12 col-md-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <span class="rounded-circle d-inline-block me-2" style="width: 12px; height: 12px; background-color: {{ parent.colour }};"></span>
+                    {{ parent.name }}
+                </span>
+                <span class="badge bg-light text-dark">{{ parent.leagues|length }} league(s)</span>
+            </div>
+            <div class="card-body">
+                {% if parent.description %}
+                <p class="text-muted small mb-3">{{ parent.description }}</p>
+                {% endif %}
+                <div class="mb-3 d-flex flex-wrap gap-1">
+                    {% if parent.season_type %}
+                    {% set season_colour = season_type_colours[parent.season_type] %}
+                    <span class="badge" style="background-color: {{ season_colour }}; color: {{ contrast_text(season_colour) | trim }};">{{ season_type_label(parent.season_type) }} badge</span>
+                    {% endif %}
+                </div>
+                <p class="text-muted small mb-3">{{ league_format_description(parent) }}</p>
+                {% if parent.leagues %}
+                <div class="mb-3">
+                    <div class="text-muted small">Leagues</div>
+                    <ul class="mb-0">
+                        {% for league in parent.leagues %}
+                        <li><a href="{{ url_for('league_detail', league_id=league.id) }}" title="{{ league.name }}">{{ short_league_name(league.name) }}</a></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                {% if is_admin %}
+                <div class="d-flex gap-1">
+                    <button type="button" class="btn btn-outline-secondary flex-grow-1" data-bs-toggle="modal" data-bs-target="#editParentLeagueModal{{ parent.id }}">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteParentLeagueModal{{ parent.id }}" title="Delete parent league">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if is_admin %}
+<!-- Edit Parent League Modals -->
+{% for parent in parents %}
+<div class="modal fade" id="editParentLeagueModal{{ parent.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('edit_parent_league', parent_id=parent.id) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Parent League</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editName{{ parent.id }}" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="editName{{ parent.id }}" name="name" value="{{ parent.name }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editColour{{ parent.id }}" class="form-label">Colour</label>
+                        <input type="color" class="form-control form-control-color" id="editColour{{ parent.id }}" name="colour" value="{{ parent.colour }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editDescription{{ parent.id }}" class="form-label">Description (optional)</label>
+                        <textarea class="form-control" id="editDescription{{ parent.id }}" name="description" rows="2">{{ parent.description or '' }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editSeasonType{{ parent.id }}" class="form-label">Season Badge</label>
+                        <select class="form-select" id="editSeasonType{{ parent.id }}" name="season_type">
+                            <option value="" {% if not parent.season_type %}selected{% endif %}>— none —</option>
+                            {% for value, label in season_type_choices %}
+                            <option value="{{ value }}" {% if value == parent.season_type %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Which S/A/V/W nav badge this parent league groups under.</div>
+                    </div>
+                    {% if parent.leagues|length > 0 %}
+                    <p class="text-warning small"><i class="bi bi-lock me-1"></i>Locked — {{ parent.leagues|length }} league(s) already use this format.</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <label for="editFormat{{ parent.id }}" class="form-label">Format</label>
+                        <select class="form-select" id="editFormat{{ parent.id }}" name="format" {% if parent.leagues|length > 0 %}disabled{% endif %}>
+                            {% for value, label in league_format_choices %}
+                            <option value="{{ value }}" {% if value == parent.format %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editPairsPerRound{{ parent.id }}" class="form-label">Doubles Pairs per Round</label>
+                        <input type="number" class="form-control" id="editPairsPerRound{{ parent.id }}" name="pairs_per_round" min="1"
+                               value="{{ parent.pairs_per_round }}" {% if parent.leagues|length > 0 %}disabled{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editSetsPerRubber{{ parent.id }}" class="form-label">Sets per Rubber</label>
+                        <input type="number" class="form-control" id="editSetsPerRubber{{ parent.id }}" name="sets_per_rubber" min="1"
+                               value="{{ parent.sets_per_rubber }}" {% if parent.leagues|length > 0 %}disabled{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editGamesPerSet{{ parent.id }}" class="form-label">Games per Set</label>
+                        <input type="number" class="form-control" id="editGamesPerSet{{ parent.id }}" name="games_per_set" min="1"
+                               value="{{ parent.games_per_set }}" {% if parent.leagues|length > 0 %}disabled{% endif %}>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTiebreakAt{{ parent.id }}" class="form-label">Tie-break at (games)</label>
+                        <input type="number" class="form-control" id="editTiebreakAt{{ parent.id }}" name="tiebreak_at_games" min="1"
+                               value="{{ parent.tiebreak_at_games }}" {% if parent.leagues|length > 0 %}disabled{% endif %}>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-tennis">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Delete Parent League Modals -->
+{% for parent in parents %}
+<div class="modal fade" id="deleteParentLeagueModal{{ parent.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('delete_parent_league', parent_id=parent.id) }}">
+                <div class="modal-header bg-danger">
+                    <h5 class="modal-title text-white">Delete Parent League</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    {% if parent.leagues|length > 0 %}
+                    <p class="text-danger"><strong>Cannot delete:</strong> {{ parent.leagues|length }} league(s) still use this parent league. Reassign or delete those leagues first.</p>
+                    {% else %}
+                    <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
+                    <p>Are you sure you want to delete the parent league <strong>"{{ parent.name }}"</strong>?</p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    {% if parent.leagues|length > 0 %}
+                    <button type="button" class="btn btn-danger" disabled>Delete Parent League</button>
+                    {% else %}
+                    <button type="submit" class="btn btn-danger">Delete Parent League</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endif %}{# logged_in — modals #}
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-palette" style="font-size: 3rem; color: #ccc;"></i>
+        <h5 class="mt-3 text-muted">No parent leagues yet</h5>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

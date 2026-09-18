@@ -34,6 +34,26 @@
                             </div>
                         </label>
                     </div>
+                    <hr class="my-3">
+                    <div class="mb-3">
+                        <label for="pitchsideWindowDays" class="form-label">
+                            <strong>Match Day portal window</strong>
+                        </label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="number" class="form-control" style="max-width:100px"
+                                   id="pitchsideWindowDays" name="pitchside_window_days"
+                                   min="{{ pitchside_window_days_min }}" max="{{ pitchside_window_days_max }}"
+                                   value="{{ pitchside_window_days }}" required>
+                            <span class="text-muted">days ahead</span>
+                        </div>
+                        <div class="small text-muted mt-1">
+                            How many days in advance a fixture becomes available to enter via the
+                            pitchside Match Day login (<code>/pitchside/login</code>). Admins see every
+                            fixture in this window; captains see only fixtures for the team(s) they
+                            captain within it. Must be between {{ pitchside_window_days_min }} and
+                            {{ pitchside_window_days_max }}.
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-tennis">
                         <i class="bi bi-check-circle me-1"></i>Save Settings
                     </button>

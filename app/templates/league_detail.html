@@ -1,11 +1,23 @@
 {% extends "base.html" %}
 {% block title %}{{ league.name }} — Team Tracker{% endblock %}
 
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
+{% endmacro %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <a href="{{ url_for('list_leagues') }}" class="text-white-50 text-decoration-none"><i class="bi bi-arrow-left me-1"></i>All Leagues</a>
         <h2 class="text-white mb-0"><i class="bi bi-trophy-fill me-2"></i>{{ league.name }}</h2>
+        {% if league.parent_league %}
+        <span class="badge mt-1" style="background-color: {{ league.parent_league.colour }}; color: {{ contrast_text(league.parent_league.colour) | trim }};">{{ league.parent_league.name }}</span>
+        {% endif %}
     </div>
     {% if is_admin %}
     <div class="d-flex gap-2">
@@ -35,8 +47,8 @@
 <div class="alert alert-warning d-flex align-items-center mb-4">
     <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
     <div>
-        <strong>Division Lock Active:</strong>
-        After <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> for a team — counted cumulatively across that team and every higher-ranked team — a player may not play for another team in the same or a lower division. Moving up to a higher-ranked division remains allowed but the division lock would re-activate after {{ restriction.team_commitment_threshold }} plays for a higher-ranked team.
+        <strong>Team Lock Active:</strong>
+        After <strong>{{ restriction.team_commitment_threshold }} fixtures</strong> for a team — counted cumulatively across that team and every higher-ranked team — a player is locked to that team and may not play for any other team ranked the same or lower. Moving up to a higher-ranked team remains allowed, but the lock would re-activate after {{ restriction.team_commitment_threshold }} plays for that higher-ranked team.
         {% if restriction.description %}<br><small class="text-muted">{{ restriction.description }}</small>{% endif %}
     </div>
 </div>
@@ -85,12 +97,36 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="edit_name" class="form-label">League Name</label>
-                        <select class="form-select" id="edit_name" name="name" required>
-                            <option value="Cleveland Men's Doubles Summer League 2026" {% if league.name in ["Cleveland Men's Summer League 2026", "Cleveland Men's Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Men's Doubles Summer League 2026 (2 men per pair)</option>
-                            <option value="Cleveland Women's Doubles Summer League 2026" {% if league.name in ["Cleveland Women's Summer League 2026", "Cleveland Women's Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Women's Doubles Summer League 2026 (2 women per pair)</option>
-                            <option value="Cleveland Mixed Doubles Summer League 2026" {% if league.name in ["Cleveland Mixed Summer League 2026", "Cleveland Mixed Doubles Summer League 2026"] %}selected{% endif %}>Cleveland Mixed Doubles Summer League 2026 (1 man + 1 woman per pair)</option>
-                        </select>
+                        <label class="form-label">League Name</label>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <select class="form-select" id="edit_season_type" name="season_type" required>
+                                    <option value="" disabled {% if not edit_season_type %}selected{% endif %}>Season…</option>
+                                    {% for value, label in season_type_choices %}
+                                    {% if value == 'winter' and value != edit_season_type %}
+                                    <option value="{{ value }}" disabled>{{ label }} (feature unavailable)</option>
+                                    {% else %}
+                                    <option value="{{ value }}" {% if value == edit_season_type %}selected{% endif %}>{{ label }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-5">
+                                <select class="form-select" id="edit_discipline" name="discipline" required>
+                                    <option value="" disabled {% if not edit_discipline %}selected{% endif %}>Discipline…</option>
+                                    {% for value, label in league_discipline_choices %}
+                                    <option value="{{ value }}" {% if value == edit_discipline %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <input type="number" class="form-control" id="edit_year" name="year" min="2000" max="2100" value="{{ edit_year or '' }}" required>
+                            </div>
+                        </div>
+                        {% if not edit_season_type %}
+                        <div class="form-text text-warning">Current name doesn't match the standard pattern — choose all three to rename it.</div>
+                        {% endif %}
+                        <div class="form-text">Name preview: <strong id="edit_namePreview">{{ league.name }}</strong></div>
                     </div>
                     <div class="mb-3">
                         <label for="edit_description" class="form-label">Description (optional)</label>
@@ -103,22 +139,39 @@
                         <div class="form-text">The Saturday that marks the beginning of Round 1.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="edit_round5_start_date" class="form-label">Round 5 Start Date (Saturday)</label>
-                        <input type="date" class="form-control" id="edit_round5_start_date" name="round5_start_date"
-                               value="{{ league.round5_start_date.strftime('%Y-%m-%d') if league.round5_start_date else '' }}">
-                        <div class="form-text">The Saturday Round 5 begins. Gap between Rounds 4 and 5 used for catch-up.</div>
+                        <label class="form-label">Catch-up Weeks</label>
+                        <div id="editCatchupWeeksContainer">
+                            {% for cw_date in league.catchup_week_start_dates %}
+                            <div class="input-group mb-2 catchup-week-row">
+                                <input type="date" class="form-control" name="catchup_week_dates" value="{{ cw_date.strftime('%Y-%m-%d') }}">
+                                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.catchup-week-row').remove()">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addCatchupWeekRow('editCatchupWeeksContainer')">
+                            <i class="bi bi-plus-circle me-1"></i>Add catch-up week
+                        </button>
+                        <div class="form-text">Saturdays with no rounds played. Leave empty for a season that runs in consecutive rounds throughout.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="edit_round9_start_date" class="form-label">Round 9 Start Date (Saturday)</label>
-                        <input type="date" class="form-control" id="edit_round9_start_date" name="round9_start_date"
-                               value="{{ league.round9_start_date.strftime('%Y-%m-%d') if league.round9_start_date else '' }}">
-                        <div class="form-text">The Saturday Round 9 begins. Gap between Rounds 8 and 9 used for catch-up.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="edit_pairs_per_round" class="form-label">Doubles Pairs per Round</label>
-                        <input type="number" class="form-control" id="edit_pairs_per_round" name="pairs_per_round" min="1"
-                               value="{{ league.pairs_per_round or '' }}" placeholder="e.g. 3">
-                        <div class="form-text">The number of doubles pairs played per round in each fixture.</div>
+                        <label for="edit_parent_league_id" class="form-label">Parent League (format)</label>
+                        {% if league.fixtures|list|length > 0 %}
+                        <input type="text" class="form-control" value="{{ league.parent_league.name if league.parent_league else '—' }}" disabled>
+                        <div class="form-text text-warning">Locked — this league already has recorded fixtures.</div>
+                        {% else %}
+                        <select class="form-select" id="edit_parent_league_id" name="parent_league_id" required>
+                            {% for p in all_parents %}
+                            {% if p.season_type == 'winter' and league.parent_league_id != p.id %}
+                            <option value="{{ p.id }}" data-season-type="{{ p.season_type or '' }}" disabled>{{ p.name }} ({{ league_format_label(p.format) }}) — feature unavailable</option>
+                            {% else %}
+                            <option value="{{ p.id }}" data-season-type="{{ p.season_type or '' }}" {% if league.parent_league_id == p.id %}selected{% endif %}>{{ p.name }} ({{ league_format_label(p.format) }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Choosing a parent league locks in this league's format. <a href="{{ url_for('list_parent_leagues') }}">Manage parent leagues</a>.</div>
+                        {% endif %}
                     </div>
                     <hr>
                     <h6 class="mb-3">Player Restrictions</h6>
@@ -134,7 +187,7 @@
                         <input type="number" class="form-control" id="edit_team_commitment_threshold" name="team_commitment_threshold" min="0"
                                value="{{ restriction.team_commitment_threshold if restriction and restriction.team_commitment_threshold > 0 else '' }}"
                                placeholder="Leave empty or 0 to disable">
-                        <div class="form-text">After this many matches for a team, the player may not play for another team in the same or a lower division. They may still move up to a higher-ranked division.</div>
+                        <div class="form-text">After this many matches for a team (counted cumulatively across that team and every higher-ranked team), the player is locked to that team and may not play for any other team ranked the same or lower. They may still move up to a higher-ranked team.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -206,8 +259,8 @@
                     </td>
                     <td class="text-end align-middle text-nowrap">
                         {% if is_admin %}
-                        <button type="button" class="btn btn-sm btn-tennis me-1" data-bs-toggle="modal" data-bs-target="#assignTeamsModal{{ division.id }}">
-                            <i class="bi bi-people me-1"></i>Assign Teams
+                        <button type="button" class="btn btn-sm btn-tennis me-1" data-bs-toggle="modal" data-bs-target="#addTeamModal{{ division.id }}">
+                            <i class="bi bi-plus-circle me-1"></i>Add Team
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-bs-toggle="modal" data-bs-target="#editDivisionModal{{ division.id }}">
                             <i class="bi bi-pencil"></i>
@@ -231,51 +284,33 @@
 </div>
 
 {% if is_admin %}
-<!-- Assign Teams, Edit & Delete Division Modals -->
+<!-- Add Team, Edit & Delete Division Modals -->
 {% for division in divisions %}
-<!-- Assign Teams Modal -->
-{% set division_team_ids = division.teams.all() | map(attribute='id') | list %}
-<div class="modal fade" id="assignTeamsModal{{ division.id }}" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+<!-- Add Team Modal -->
+<div class="modal fade" id="addTeamModal{{ division.id }}" tabindex="-1">
+    <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('assign_teams_to_division', division_id=division.id) }}">
+            <form method="POST" action="{{ url_for('add_team_to_division', division_id=division.id) }}">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-people me-2"></i>Assign Teams to {{ division.name }}</h5>
+                    <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Add Team to {{ division.name }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    {% if all_teams %}
-                    {% set league_division_ids = divisions | map(attribute='id') | list %}
-                    <p class="text-muted small mb-3">Select the teams to place in <strong>{{ division.name }}</strong>. Deselecting a team that is currently in this division will unassign it.</p>
-                    <div class="row g-2">
-                        {% for team in all_teams %}
-                        {% set in_this_division = team.id in division_team_ids %}
-                        {% set in_other_division = team.division_id is not none and team.division_id != division.id %}
-                        <div class="col-12 col-md-6">
-                            <div class="form-check border rounded p-2 {% if in_this_division %}border-success bg-success bg-opacity-10{% elif in_other_division %}border-secondary{% else %}border-light{% endif %}">
-                                <input class="form-check-input" type="checkbox" name="team_ids" value="{{ team.id }}" id="team_{{ division.id }}_{{ team.id }}"
-                                    {% if in_this_division %}checked{% endif %}>
-                                <label class="form-check-label w-100" for="team_{{ division.id }}_{{ team.id }}">
-                                    <span class="fw-semibold">{{ team.name }}</span>
-                                    {% if in_this_division %}
-                                    <span class="badge bg-success ms-1">here</span>
-                                    {% elif team.division %}
-                                    <span class="badge bg-secondary ms-1">{{ team.division.name }}</span>
-                                    {% else %}
-                                    <span class="badge bg-light text-muted ms-1">unassigned</span>
-                                    {% endif %}
-                                </label>
-                            </div>
-                        </div>
-                        {% endfor %}
+                    <div class="mb-3">
+                        <label for="team_name_{{ division.id }}" class="form-label">Team Name</label>
+                        <input type="text" class="form-control" id="team_name_{{ division.id }}" name="name" required placeholder="e.g. Riverside A">
                     </div>
-                    {% else %}
-                    <p class="text-muted text-center py-3">No teams registered yet. Add teams from the <a href="{{ url_for('list_teams') }}">Teams</a> page first.</p>
-                    {% endif %}
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="team_fees_{{ division.id }}" name="match_fees_enabled" value="1">
+                            <label class="form-check-label" for="team_fees_{{ division.id }}">Enable match fee records</label>
+                        </div>
+                        <div class="form-text">Track whether players have paid their match fee for each fixture.</div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-tennis">Save Allocation</button>
+                    <button type="submit" class="btn btn-tennis">Create Team</button>
                 </div>
             </form>
         </div>
@@ -337,4 +372,60 @@
 {% endfor %}
 {% endif %}{# logged_in — division modals #}
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function addCatchupWeekRow(containerId, value) {
+    const container = document.getElementById(containerId);
+    const rowHtml = `
+        <div class="input-group mb-2 catchup-week-row">
+            <input type="date" class="form-control" name="catchup_week_dates" value="${value || ''}">
+            <button type="button" class="btn btn-outline-danger" onclick="this.closest('.catchup-week-row').remove()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', rowHtml);
+}
+
+// Live-updates the "{org} {discipline} {season} League {year}" name preview
+// as the three derived-name inputs change, and lets picking a parent league
+// pre-fill the season type from that parent's own badge (if any) as a
+// starting point — the admin can still override it.
+const LEAGUE_NAME_ORG_PREFIX = {{ league_name_org_prefix|tojson }};
+function wireLeagueNamePreview(seasonId, discId, yearId, previewId) {
+    const seasonSel = document.getElementById(seasonId);
+    const discSel = document.getElementById(discId);
+    const yearInput = document.getElementById(yearId);
+    const preview = document.getElementById(previewId);
+    if (!seasonSel || !discSel || !yearInput || !preview) return;
+    function update() {
+        const orgPrefix = LEAGUE_NAME_ORG_PREFIX[seasonSel.value] || 'Cleveland';
+        const seasonLabel = seasonSel.value ? seasonSel.selectedOptions[0].text : '…';
+        const discipline = discSel.value || '…';
+        const year = yearInput.value || '…';
+        preview.textContent = `${orgPrefix} ${discipline} ${seasonLabel} League ${year}`;
+    }
+    [seasonSel, discSel, yearInput].forEach((el) => el.addEventListener('input', update));
+    update();
+}
+
+function wireParentLeagueSeasonSuggest(parentSelectId, seasonSelectId) {
+    const parentSel = document.getElementById(parentSelectId);
+    const seasonSel = document.getElementById(seasonSelectId);
+    if (!parentSel || !seasonSel) return;
+    parentSel.addEventListener('change', function () {
+        const opt = parentSel.selectedOptions[0];
+        const seasonType = opt && opt.dataset.seasonType;
+        if (seasonType && !seasonSel.value) {
+            seasonSel.value = seasonType;
+            seasonSel.dispatchEvent(new Event('input'));
+        }
+    });
+}
+
+wireLeagueNamePreview('edit_season_type', 'edit_discipline', 'edit_year', 'edit_namePreview');
+wireParentLeagueSeasonSuggest('edit_parent_league_id', 'edit_season_type');
+</script>
 {% endblock %}

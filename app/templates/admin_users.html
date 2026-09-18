@@ -62,9 +62,18 @@
                                 </td>
                                 <td class="d-none d-md-table-cell">
                                     {% if u.player %}
-                                    <a href="{{ url_for('player_detail', player_id=u.player.id) }}">
+                                    <a href="{{ url_for('player_detail', player_id=u.player.id) }}"
+                                       class="{% if u.player.membership_status == 'inactive' %}player-inactive{% endif %}">
                                         {{ u.player.name }}
                                     </a>
+                                    {% elif u.pitchside_player %}
+                                    <a href="{{ url_for('player_detail', player_id=u.pitchside_player.id) }}"
+                                       class="{% if u.pitchside_player.membership_status == 'inactive' %}player-inactive{% endif %}">
+                                        {{ u.pitchside_player.name }}
+                                    </a>
+                                    <span class="badge bg-info text-dark ms-1" title="Can also sign in via the pitchside match-day login, seeing every fixture">
+                                        <i class="bi bi-phone"></i>
+                                    </span>
                                     {% elif u.role == 'captain' %}
                                     <span class="text-warning small">No player linked</span>
                                     {% else %}
@@ -73,6 +82,12 @@
                                 </td>
                                 <td class="d-none d-lg-table-cell text-muted small">{{ u.created }}</td>
                                 <td class="text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary me-1"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#editPlayerModal{{ loop.index }}"
+                                            title="Link a player">
+                                        <i class="bi bi-person-lines-fill"></i>
+                                    </button>
                                     {% if u.uid != session.get('user_uid') %}
                                     <button type="button" class="btn btn-sm btn-outline-secondary me-1"
                                             data-bs-toggle="modal"
@@ -127,7 +142,7 @@
                             </label>
                         </div>
                     </div>
-                    <div class="mb-3" id="playerField" style="display:none">
+                    <div class="mb-3" id="playerField">
                         <label for="add_player" class="form-label">Linked player</label>
                         <select class="form-select" id="add_player" name="player_id">
                             <option value="">— no player linked —</option>
@@ -135,7 +150,14 @@
                             <option value="{{ p.id }}">{{ p.name }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">The player must have a captain role on at least one team.</div>
+                        <div class="form-text" id="playerFieldHelpCaptain" style="display:none">
+                            The player must have a captain role on at least one team.
+                        </div>
+                        <div class="form-text" id="playerFieldHelpAdmin">
+                            Optional — if set, this admin can also sign in at the pitchside
+                            match-day login (email + last 4 digits of the player's LTA number)
+                            and will see every fixture, not just ones for a captained team.
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-tennis w-100">
                         <i class="bi bi-person-plus me-1"></i>Add user
@@ -145,6 +167,50 @@
         </div>
     </div>
 </div>
+
+<!-- Edit linked player modals -->
+{% for u in users %}
+{% set current_player = u.player or u.pitchside_player %}
+<div class="modal fade" id="editPlayerModal{{ loop.index }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('admin_edit_user_player', uid=u.uid) }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Linked player</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2 small text-muted">{{ u.email }}</p>
+                    <label class="form-label form-label-sm mb-1">Linked player</label>
+                    <select class="form-select form-select-sm" name="player_id">
+                        <option value="">— no player linked —</option>
+                        {% for p in players %}
+                        <option value="{{ p.id }}" {% if current_player and current_player.id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if u.role == 'admin' %}
+                    <div class="form-text">
+                        Lets this admin also sign in at the pitchside match-day login
+                        (email + last 4 digits of the player's LTA number), seeing every
+                        fixture. Doesn't affect their normal admin access.
+                    </div>
+                    {% else %}
+                    <div class="form-text">
+                        The player this captain's access is tied to — used for their squad,
+                        scores, and match fee permissions, and the pitchside match-day login.
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-tennis">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 <!-- Role-change modals -->
 {% for u in users %}
@@ -233,8 +299,9 @@
 <script>
 document.querySelectorAll('input[name="role"]').forEach(function (radio) {
     radio.addEventListener('change', function () {
-        document.getElementById('playerField').style.display =
-            this.value === 'captain' ? '' : 'none';
+        var isCaptain = this.value === 'captain';
+        document.getElementById('playerFieldHelpCaptain').style.display = isCaptain ? '' : 'none';
+        document.getElementById('playerFieldHelpAdmin').style.display = isCaptain ? 'none' : '';
     });
 });
 </script>

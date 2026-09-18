@@ -21,8 +21,19 @@
                     <input type="hidden" name="action" value="parse">
 
                     <div class="mb-3">
+                        <label class="form-label fw-bold">League Season</label>
+                        <select id="league_id" class="form-select">
+                            <option value="">— All seasons —</option>
+                            {% for league in leagues %}
+                            <option value="{{ league.id }}">{{ league.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Narrows the team list below to teams in that league season.</div>
+                    </div>
+
+                    <div class="mb-3">
                         <label class="form-label fw-bold">Our Team</label>
-                        <select name="our_team_id" class="form-select" required>
+                        <select name="our_team_id" id="our_team_id" class="form-select" required>
                             <option value="">Select a team…</option>
                             {% set mens_teams = [] %}
                             {% set womens_teams = [] %}
@@ -40,21 +51,21 @@
                             {% if mens_teams %}
                             <optgroup label="Men's">
                                 {% for team in mens_teams %}
-                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                                 {% endfor %}
                             </optgroup>
                             {% endif %}
                             {% if womens_teams %}
                             <optgroup label="Women's">
                                 {% for team in womens_teams %}
-                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                                 {% endfor %}
                             </optgroup>
                             {% endif %}
                             {% if mixed_teams %}
                             <optgroup label="Mixed">
                                 {% for team in mixed_teams %}
-                                <option value="{{ team.id }}">{{ team.name }}</option>
+                                <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                                 {% endfor %}
                             </optgroup>
                             {% endif %}
@@ -76,4 +87,31 @@
         </div>
     </div>
 </div>
+
+<script>
+// Scope the "Our Team" list to the chosen league season so identically-named
+// teams from a different season (e.g. "Yarm A Men" in both Summer and
+// Autumn) aren't ambiguous. "— All seasons —" leaves every team visible.
+(function () {
+    const leagueSelect = document.getElementById('league_id');
+    const teamSelect = document.getElementById('our_team_id');
+    const filterTeamsByLeague = function () {
+        const leagueId = leagueSelect.value;
+        teamSelect.querySelectorAll('optgroup').forEach(function (group) {
+            let anyVisible = false;
+            Array.from(group.options).forEach(function (opt) {
+                const visible = !leagueId || opt.dataset.leagueId === leagueId;
+                opt.hidden = !visible;
+                if (visible) anyVisible = true;
+                if (!visible && opt.selected) {
+                    teamSelect.value = '';
+                }
+            });
+            group.hidden = !anyVisible;
+        });
+    };
+    leagueSelect.addEventListener('change', filterTeamsByLeague);
+    filterTeamsByLeague();
+})();
+</script>
 {% endblock %}

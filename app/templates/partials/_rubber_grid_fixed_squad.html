@@ -1,0 +1,223 @@
+{# Rubber grid for the two fixed-squad formats (cleveland_veterans, ne_winter).
+
+   Included from fixture_detail.html when league_format is one of those two.
+   Context vars used: fixture, rubbers, eligible_players, yarm_is_home, yarm_team,
+   both_yarm, can_edit, team_id, league_format, rubber_plan, squad_prefill, is_admin.
+#}
+{% set away_perspective = both_yarm and not yarm_is_home %}
+{% set yarm_side = 'home' if yarm_is_home else 'away' %}
+{% set rubbers_by_number = {} %}
+{% for r in rubbers %}{% set _ = rubbers_by_number.update({r.rubber_number: r}) %}{% endfor %}
+{% set men = eligible_players | selectattr('gender', 'in', ['M', 'U']) | list %}
+{% set women = eligible_players | selectattr('gender', 'in', ['F', 'U']) | list %}
+
+<form id="rubber-form" method="POST" action="{{ url_for('save_rubbers', fixture_id=fixture.id) }}">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+
+    <div class="mb-3">
+        <div class="text-muted small mb-2">
+            <i class="bi bi-people me-1"></i>Squad — pick 2 mixed pairs (each pair's man + woman also
+            forms that side's contribution to Mens/Womens Doubles).
+        </div>
+        {% for pair_num in [1, 2] %}
+        <div class="row g-2 mb-2 align-items-center">
+            <div class="col-auto fw-bold text-muted" style="width:6.5rem">Mixed Pair {{ pair_num }}</div>
+            <div class="col-sm-5">
+                <select class="form-select form-select-sm squad-select" name="squad_pair{{ pair_num }}_man" required
+                        {% if not can_edit or away_perspective %}disabled{% endif %}>
+                    <option value="">— Select man —</option>
+                    {% for p in men %}
+                    <option value="{{ p.id }}" {% if squad_prefill['pair' ~ pair_num ~ '_man'] == p.id %}selected{% endif %}>
+                        {{ p.name }}{% if p.gender == 'U' %} — gender not set{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-5">
+                <select class="form-select form-select-sm squad-select" name="squad_pair{{ pair_num }}_woman" required
+                        {% if not can_edit or away_perspective %}disabled{% endif %}>
+                    <option value="">— Select woman —</option>
+                    {% for p in women %}
+                    <option value="{{ p.id }}" {% if squad_prefill['pair' ~ pair_num ~ '_woman'] == p.id %}selected{% endif %}>
+                        {{ p.name }}{% if p.gender == 'U' %} — gender not set{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table align-middle mb-3">
+            <thead>
+                <tr>
+                    <th>Rubber</th>
+                    {% if league_format == 'ne_winter' %}
+                    <th class="text-center">Set 1</th>
+                    <th class="text-center">Set 2</th>
+                    <th class="text-center" style="width:4rem">W/O</th>
+                    {% else %}
+                    <th class="text-center">Score</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for slot in rubber_plan %}
+                {% set rubber_n = rubbers_by_number.get(slot.rubber_number) %}
+                {% set row_walkover = rubber_n.set1_walkover if rubber_n else none %}
+                {% set is_yarm_row_walkover = row_walkover and ((row_walkover == 'home' and yarm_is_home) or (row_walkover == 'away' and not yarm_is_home)) %}
+                <tr data-committed="true">
+                    <td class="fw-bold text-muted">{{ slot.label }}</td>
+                    {% for n in range(1, slot.sets + 1) %}
+                    {% set tie_val = rubber_n['set' ~ n ~ '_tie'] if rubber_n else false %}
+                    {% if yarm_is_home %}
+                        {% set yarm_val = rubber_n['home_set' ~ n] if rubber_n else none %}
+                        {% set opp_val = rubber_n['away_set' ~ n] if rubber_n else none %}
+                    {% else %}
+                        {% set yarm_val = rubber_n['away_set' ~ n] if rubber_n else none %}
+                        {% set opp_val = rubber_n['home_set' ~ n] if rubber_n else none %}
+                    {% endif %}
+                    <td class="text-center rubber-cell {% if tie_val %}is-tie{% elif row_walkover %}is-walkover{% if league_format != 'ne_winter' %} {% if is_yarm_row_walkover %}is-walkover-yarm{% else %}is-walkover-opp{% endif %}{% endif %}{% endif %}">
+                        <input type="checkbox" class="visually-hidden tie-cb"
+                               name="rubber_{{ slot.rubber_number }}_set{{ n }}_tie"
+                               {% if tie_val %}checked{% endif %}
+                               {% if away_perspective or not can_edit %}disabled{% endif %}>
+                        {% if league_format != 'ne_winter' %}
+                        <input type="hidden" class="walkover-hidden"
+                               name="rubber_{{ slot.rubber_number }}_walkover"
+                               value="{{ row_walkover or '' }}"
+                               {% if away_perspective or not can_edit %}disabled{% endif %}>
+                        {% endif %}
+                        <div class="score-wrap d-flex align-items-center gap-1 justify-content-center"
+                             {% if tie_val or row_walkover %}style="display:none!important;"{% endif %}>
+                            <input type="number" class="form-control form-control-sm text-center score-box"
+                                   name="rubber_{{ slot.rubber_number }}_home_set{{ n }}"
+                                   value="{{ yarm_val if yarm_val is not none else '' }}"
+                                   min="0" max="9"
+                                   {% if away_perspective or not can_edit %}disabled{% endif %}>
+                            <div class="d-flex flex-column align-items-center" style="gap:3px">
+                                <button type="button" class="tie-sep" title="Mark as tied" onclick="toggleTie(this)"
+                                        {% if away_perspective or not can_edit %}disabled{% endif %}>T</button>
+                                {% if league_format != 'ne_winter' %}
+                                <button type="button" class="walkover-btn" title="Walkover — click to select winner" onclick="toggleWalkover(this)"
+                                        {% if away_perspective or not can_edit %}disabled{% endif %}>W</button>
+                                {% endif %}
+                            </div>
+                            <input type="number" class="form-control form-control-sm text-center score-box"
+                                   name="rubber_{{ slot.rubber_number }}_away_set{{ n }}"
+                                   value="{{ opp_val if opp_val is not none else '' }}"
+                                   min="0" max="9"
+                                   {% if away_perspective or not can_edit %}disabled{% endif %}>
+                        </div>
+                        <div class="tie-display" {% if not tie_val %}style="display:none"{% endif %}>
+                            <button type="button" class="winner-badge winner-tie tie-sep" title="Click to clear tie" onclick="toggleTie(this)"
+                                    {% if away_perspective or not can_edit %}disabled{% endif %}>T</button>
+                        </div>
+                        {% if league_format != 'ne_winter' %}
+                        <div class="walkover-display" {% if not row_walkover %}style="display:none"{% endif %}>
+                            <button type="button" class="winner-badge {% if is_yarm_row_walkover %}winner-home{% else %}winner-away{% endif %} walkover-sep"
+                                    title="{% if is_yarm_row_walkover %}Walkover — Yarm wins. Click to switch to Opposition walkover.{% else %}Walkover — Opposition wins. Click to clear.{% endif %}"
+                                    onclick="toggleWalkover(this)"
+                                    {% if away_perspective or not can_edit %}disabled{% endif %}>W</button>
+                        </div>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    {% if league_format == 'ne_winter' %}
+                    <td class="text-center">
+                        <input type="hidden" class="row-walkover-hidden"
+                               name="rubber_{{ slot.rubber_number }}_walkover"
+                               value="{{ row_walkover or '' }}"
+                               {% if away_perspective or not can_edit %}disabled{% endif %}>
+                        <button type="button"
+                                class="walkover-btn row-walkover-badge {% if row_walkover %}active {% if is_yarm_row_walkover %}text-success{% else %}text-danger{% endif %}{% endif %}"
+                                title="Walkover — forfeits both sets. Click to select winner."
+                                onclick="toggleRowWalkover(this)"
+                                {% if away_perspective or not can_edit %}disabled{% endif %}>
+                            {% if row_walkover %}{% if is_yarm_row_walkover %}W (Yarm){% else %}W (Opp){% endif %}{% else %}W{% endif %}
+                        </button>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if away_perspective %}
+    <div class="alert alert-secondary py-2 px-3 mb-3 small">
+        <i class="bi bi-lock me-1"></i>Scores are entered from the
+        <a href="{{ url_for('fixture_detail', fixture_id=fixture.id, team_id=fixture.home_team_id) }}" class="alert-link">home team view</a>.
+    </div>
+    {% elif league_format == 'ne_winter' %}
+    <div class="text-muted small mb-3">
+        <i class="bi bi-info-circle me-1"></i>Scoring: 1 point per set won (2 sets per rubber, no bonus points)
+    </div>
+    {% else %}
+    <div class="text-muted small mb-3">
+        <i class="bi bi-info-circle me-1"></i>Scoring: 2 pts per rubber win · 1 pt each for a tied rubber · 4 bonus pts to the team winning more rubbers
+    </div>
+    {% endif %}
+
+    {% if can_edit %}
+    <div class="d-flex justify-content-between align-items-center">
+        {% if not away_perspective %}
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearScores()">
+            <i class="bi bi-x-circle me-1"></i>Clear
+        </button>
+        {% else %}
+        <span></span>
+        {% endif %}
+        <span id="save-btn-wrapper" class="d-inline-block" tabindex="0">
+            <button id="save-results-btn" type="submit" class="btn btn-tennis" disabled>
+                <i class="bi bi-check-circle me-1"></i>{% if away_perspective %}Save Squad{% else %}Save Results{% endif %}
+            </button>
+        </span>
+    </div>
+    {% endif %}
+</form>
+{% if is_admin %}<form id="clear-results-form" method="POST" action="{{ url_for('clear_fixture_results', fixture_id=fixture.id) }}" style="display:none">
+    {% if team_id %}<input type="hidden" name="team_id" value="{{ team_id }}">{% endif %}
+</form>{% endif %}{# is_admin — clear-results form #}
+
+<script>
+function toggleRowWalkover(btn) {
+    var row = btn.closest('tr');
+    var hidden = row.querySelector('.row-walkover-hidden');
+    var current = hidden.value;
+    var next;
+    if (!current) {
+        next = _yarmIsHome ? 'home' : 'away';
+    } else if (current === (_yarmIsHome ? 'home' : 'away')) {
+        next = _yarmIsHome ? 'away' : 'home';
+    } else {
+        next = '';
+    }
+    hidden.value = next;
+    row.querySelectorAll('td.rubber-cell').forEach(function (cell) {
+        var wrap = cell.querySelector('.score-wrap');
+        var tieCb = cell.querySelector('.tie-cb');
+        cell.classList.remove('is-tie', 'is-walkover');
+        if (tieCb) tieCb.checked = false;
+        var tieDisplay = cell.querySelector('.tie-display');
+        if (tieDisplay) tieDisplay.style.display = 'none';
+        if (next) {
+            cell.classList.add('is-walkover');
+            if (wrap) wrap.style.setProperty('display', 'none', 'important');
+        } else if (wrap) {
+            wrap.style.removeProperty('display');
+        }
+    });
+    btn.classList.toggle('active', !!next);
+    btn.classList.remove('text-success', 'text-danger');
+    if (next) {
+        btn.classList.add(next === (_yarmIsHome ? 'home' : 'away') ? 'text-success' : 'text-danger');
+        btn.textContent = next === (_yarmIsHome ? 'home' : 'away') ? 'W (Yarm)' : 'W (Opp)';
+    } else {
+        btn.textContent = 'W';
+    }
+    _resultsDirty = true;
+    updateSaveBtn();
+}
+</script>
