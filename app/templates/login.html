@@ -20,6 +20,17 @@
                     <i class="bi bi-person-lock me-2"></i><span id="locked-message"></span>
                 </div>
 
+                {% if is_localhost %}
+                <div id="dev-login-section">
+                    <p class="text-muted text-center mb-3">Local development — sign in as admin.</p>
+                    <div class="d-grid">
+                        <button type="button" class="btn btn-success" id="dev-login-btn">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+                        </button>
+                    </div>
+                    <div id="send-error" class="alert alert-danger mt-3 d-none"></div>
+                </div>
+                {% else %}
                 <div id="send-link-section">
                     <p class="text-muted text-center mb-3">Enter your email to receive a sign-in link.</p>
                     <form id="email-form">
@@ -36,6 +47,7 @@
                     </form>
                     <div id="send-error" class="alert alert-danger mt-3 d-none"></div>
                 </div>
+                {% endif %}
 
                 <div id="check-email-section" class="d-none text-center py-2">
                     <i class="bi bi-envelope-check display-4 text-success"></i>
@@ -59,6 +71,11 @@
 
             </div>
         </div>
+        <p class="text-white-50 text-center mt-4 mb-0">
+            <a href="{{ url_for('pitchside_login') }}" class="text-white-50">
+                <i class="bi bi-phone me-1"></i>Captain at a match? Pitchside scoresheet login &rarr;
+            </a>
+        </p>
     </div>
 </div>
 {% endblock %}
@@ -70,13 +87,15 @@
     var _apiKey    = {{ firebase_api_key    | tojson }};
     var _projectId = {{ firebase_project_id | tojson }};
     var _authDomain = {{ firebase_auth_domain | tojson }};
+    var _isLocalhost = {{ is_localhost | tojson }};
     var _next = {{ next | tojson }};
 
-    var SECTIONS = ['send-link-section', 'check-email-section', 'signing-in-section', 'error-section'];
+    var SECTIONS = ['send-link-section', 'dev-login-section', 'check-email-section', 'signing-in-section', 'error-section'];
 
     function showSection(id) {
         SECTIONS.forEach(function (s) {
-            document.getElementById(s).classList.toggle('d-none', s !== id);
+            var el = document.getElementById(s);
+            if (el) el.classList.toggle('d-none', s !== id);
         });
     }
 
@@ -85,10 +104,14 @@
         showSection('error-section');
     }
 
+    function submitBtn() {
+        return document.getElementById('dev-login-btn') || document.getElementById('send-btn');
+    }
+
     function showLockedBanner(msg, reloadAfterMs) {
         document.getElementById('locked-message').textContent = msg;
         document.getElementById('locked-banner').classList.remove('d-none');
-        document.getElementById('send-btn').disabled = true;
+        submitBtn().disabled = true;
         if (reloadAfterMs) {
             setTimeout(function () { window.location.reload(); }, reloadAfterMs);
         }
@@ -96,7 +119,7 @@
 
     function clearLockedBanner() {
         document.getElementById('locked-banner').classList.add('d-none');
-        document.getElementById('send-btn').disabled = false;
+        submitBtn().disabled = false;
     }
 
     function checkSessionStatus() {
@@ -117,7 +140,38 @@
             .catch(function () { /* silently ignore network errors */ });
     }
 
-    if (!_apiKey || !_projectId) {
+    if (_isLocalhost) {
+        checkSessionStatus();
+
+        document.getElementById('dev-login-btn').addEventListener('click', function () {
+            var btn = submitBtn();
+            var errDiv = document.getElementById('send-error');
+            btn.disabled = true;
+            errDiv.classList.add('d-none');
+
+            fetch('/auth/dev-login', { method: 'POST' })
+                .then(function (resp) {
+                    if (resp.ok) {
+                        window.location.href = _next;
+                    } else if (resp.status === 409) {
+                        return resp.json().then(function (data) {
+                            errDiv.textContent = data.message || 'Another user is currently logged in. Please try again later.';
+                            errDiv.classList.remove('d-none');
+                            btn.disabled = false;
+                        });
+                    } else {
+                        errDiv.textContent = 'Sign-in failed.';
+                        errDiv.classList.remove('d-none');
+                        btn.disabled = false;
+                    }
+                })
+                .catch(function (err) {
+                    errDiv.textContent = 'Sign-in error: ' + err.message;
+                    errDiv.classList.remove('d-none');
+                    btn.disabled = false;
+                });
+        });
+    } else if (!_apiKey || !_projectId) {
         showError('Sign-in is not configured. Please contact the administrator.');
     } else {
         firebase.initializeApp({ apiKey: _apiKey, authDomain: _authDomain, projectId: _projectId });

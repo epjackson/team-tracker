@@ -6,7 +6,7 @@
 repos:
   # Python code formatting
   - repo: https://github.com/psf/black
-    rev: 24.3.0
+    rev: 258e7dbf348bc23cb70b8cdf693481c04634ebcc  # frozen: 26.10.1
     hooks:
       - id: black
         language_version: python3
@@ -14,14 +14,14 @@ repos:
 
   # Import sorting
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 9f905615631c545f5aea2516508109350d1d2f7d  # frozen: 9.0.2
     hooks:
       - id: isort
         args: ['--profile=black']
 
   # Python linting
   - repo: https://github.com/PyCQA/flake8
-    rev: 7.0.0
+    rev: 7eccf20b526fe4f2230bf9afeeef2fc9f97faf8d  # frozen: 7.4.1
     hooks:
       - id: flake8
         args: ['--max-line-length=100', '--extend-ignore=E203,W503']
@@ -31,7 +31,7 @@ repos:
 
   # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -43,10 +43,55 @@ repos:
 
   # YAML linting
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.35.1
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530  # frozen: v1.38.0
     hooks:
       - id: yamllint
         args: [--format, parsable]
+
+  # Terraform: fmt + validate (local hooks so only tracked .tf files are touched,
+  # never the gitignored *.tfvars, and only the dev/preview/prod roots are initialised).
+  # Needs terraform on PATH; tflint + terraform-docs are auto-downloaded by their hooks below.
+  # Skipped in ci.yml's lint job (SKIP env) — .github/workflows/terraform.yml covers them there.
+  - repo: local
+    hooks:
+      - id: terraform_fmt
+        name: Terraform fmt
+        entry: terraform fmt
+        language: system
+        files: \.tf$
+      - id: terraform_validate
+        name: Terraform validate
+        entry: >-
+          bash -c 'for e in dev preview prod; do
+          terraform -chdir=terraform/$e init -backend=false -input=false >/dev/null &&
+          terraform -chdir=terraform/$e validate -no-color || exit 1; done'
+        language: system
+        files: ^terraform/.*\.tf$
+        pass_filenames: false
+
+  # Terraform: tflint + terraform-docs (regenerates module READMEs in place)
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: 443ffdff1cc1663b701ae73e7459029fe883455a  # frozen: v1.109.3
+    hooks:
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+          - --args=--minimum-failure-severity=error
+          # Downloaded + cached by the hook if not on PATH; keep in sync with TFLINT_VERSION
+          # in .github/workflows/terraform.yml
+          - --hook-config=--tool-version=0.65.0
+      - id: terraform_docs
+        args:
+          - --args=--config=.terraform-docs.yml
+          # Keep in sync with TERRAFORM_DOCS_VERSION in .github/workflows/terraform.yml
+          - --hook-config=--tool-version=0.24.0
+
+  # Terraform security scan (pip-installed by pre-commit, no local binary needed)
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: dfeb34b2d52a269bb417b4d4f7854a16bef06629  # frozen: 3.3.30
+    hooks:
+      - id: checkov
+        entry: checkov -d terraform --config-file .checkov.yaml --compact --quiet
 
 default_language_version:
   python: python3

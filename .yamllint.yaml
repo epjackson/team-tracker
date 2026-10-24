@@ -1,0 +1,9 @@
+---
+# yamllint configuration (used by the pre-commit yamllint hook).
+# Line length raised from 80 so SHA-pinned `uses:` lines (with a
+# `# vX.Y.Z` comment for Dependabot) fit.
+extends: default
+
+rules:
+  line-length:
+    max: 120

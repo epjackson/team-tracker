@@ -1,0 +1,74 @@
+---
+# Dependabot: keeps Python, Terraform, GitHub Actions and pre-commit dependencies current.
+# Docs: https://docs.github.com/code-security/dependabot
+
+version: 2
+
+updates:
+  # Python app dependencies (requirements.txt, requirements-dev.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Terraform providers + lock files for each environment root
+  # (terraform/src modules are local paths with no provider pins of their own)
+  - package-ecosystem: "terraform"
+    directories:
+      - "/terraform/dev"
+      - "/terraform/preview"
+      - "/terraform/prod"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "terraform"
+    commit-message:
+      prefix: "chore(infra)"
+    groups:
+      terraform-providers:
+        patterns:
+          - "*"
+
+  # GitHub Actions used in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # pre-commit hook revs in .pre-commit-config.yaml (SHA-pinned; Dependabot
+  # keeps the `# frozen: vX.Y.Z` comments in sync and skips `repo: local` hooks)
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "pre-commit"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      pre-commit-hooks:
+        patterns:
+          - "*"

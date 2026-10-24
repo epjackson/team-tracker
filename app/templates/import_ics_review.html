@@ -78,7 +78,7 @@
                                     {% for t in all_teams %}
                                     <option value="{{ t.id }}"
                                             {% if _opp_pre and _opp_pre.id == t.id %}selected{% endif %}>
-                                        {{ t.name }}
+                                        {{ t.name }}{% if t.division and t.division.league %} — {{ t.division.league.name }}{% endif %}
                                     </option>
                                     {% endfor %}
                                 </select>

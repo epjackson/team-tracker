@@ -3,11 +3,6 @@ variable "project_id" {
   type        = string
 }
 
-variable "billing_account_id" {
-  description = "The ID of the billing account to link to the project."
-  type        = string
-}
-
 variable "gcp_env" {
   description = "The environment to deploy resources in (e.g. dev, staging, prod)."
   type        = string

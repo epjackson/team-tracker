@@ -4,6 +4,20 @@
 {% block extra_css %}
 <style>
     .modal-backdrop.show { opacity: 0.8; }
+    .season-card { text-decoration: none; cursor: pointer; }
+    .season-card .card { border: 3px solid transparent; }
+    .season-card-active .card { border-color: var(--card-colour, #1a6b50); }
+    .season-card-disabled { opacity: 0.6; }
+    .season-card-letter {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 3.5rem;
+        height: 3.5rem;
+        border-radius: 50%;
+        font-size: 1.5rem;
+        font-weight: 800;
+    }
 </style>
 {% endblock %}
 
@@ -16,39 +30,36 @@
     {% endif %}
 </div>
 
-<!-- Stats row -->
-<div class="row g-4 mb-5">
-    <div class="col">
-        <div class="card stat-card">
-            <div class="stat-number">{{ leagues|length }}</div>
-            <div class="stat-label">Leagues</div>
+<!-- Season selector cards -->
+<div class="row g-4 mb-4">
+    {% for b in season_cards %}
+    <div class="col-6 col-lg-3">
+        {% if b.available %}
+        <a href="{{ url_for('select_season', season_type=b.type, next=url_for('index')) }}" class="season-card d-block {{ 'season-card-active' if selected_season_type == b.type else '' }}" style="--card-colour: {{ b.colour }};">
+            <div class="card h-100">
+                <div class="card-body text-center py-4">
+                    <span class="season-card-letter" style="background: {{ b.colour }}; color: {{ b.text_colour }};">{{ b.letter }}</span>
+                    <h5 class="mt-3 mb-1">{{ b.label }}{% if b.year %} {{ b.year }}{% endif %}</h5>
+                    <div class="text-muted small">{{ b.team_count }} team{{ 's' if b.team_count != 1 else '' }} &middot; {{ b.fixture_count }} fixture{{ 's' if b.fixture_count != 1 else '' }} &middot; {{ b.played_count }} played</div>
+                </div>
+            </div>
+        </a>
+        {% else %}
+        <div class="season-card season-card-disabled d-block">
+            <div class="card h-100">
+                <div class="card-body text-center py-4">
+                    <span class="season-card-letter" style="background: {{ b.colour }}; color: {{ b.text_colour }};">{{ b.letter }}</span>
+                    <h5 class="mt-3 mb-1 text-muted">{{ b.label }}</h5>
+                    <div class="text-muted small">{{ 'Feature not yet available' if b.type == 'winter' else 'Not started yet' }}</div>
+                </div>
+            </div>
         </div>
+        {% endif %}
     </div>
-    <div class="col">
-        <div class="card stat-card">
-            <div class="stat-number">{{ teams|length }}</div>
-            <div class="stat-label">Teams</div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card stat-card">
-            <div class="stat-number">{{ fixtures|length }}</div>
-            <div class="stat-label">Fixtures Recorded</div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card stat-card">
-            <div class="stat-number text-success">{{ active_members_count }}</div>
-            <div class="stat-label">Active Members</div>
-        </div>
-    </div>
-    <div class="col">
-        <div class="card stat-card">
-            <div class="stat-number text-info">{{ interested_players_count }}</div>
-            <div class="stat-label">Interested in Teams</div>
-        </div>
-    </div>
+    {% endfor %}
 </div>
+
+{% if selected_season_type %}
 
 <!-- Fixtures two-column layout -->
 <div class="row g-4 mb-4">
@@ -244,6 +255,15 @@
                 {% endfor %}
             </div>
         </div>
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-hand-index-thumb" style="font-size: 2.5rem; color: #ccc;"></i>
+        <p class="mt-3 text-muted mb-0">Select a season above to see teams, fixtures, and players.</p>
     </div>
 </div>
 {% endif %}

@@ -1,14 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Leagues — Team Tracker{% endblock %}
 
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
+{% endmacro %}
+
+{% block extra_css %}
+<style>
+  .league-group-toggle { transition: opacity 0.15s; }
+  .league-group-toggle:hover { opacity: 0.9; }
+  .league-group-chevron { transition: transform 0.2s; }
+  .league-group-toggle.collapsed .league-group-chevron { transform: rotate(-90deg); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="text-white mb-0"><i class="bi bi-trophy me-2"></i>Leagues</h2>
-    {% if is_admin %}
-    <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addLeagueModal">
-        <i class="bi bi-plus-circle me-1"></i>Add League
-    </button>
-    {% endif %}
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('list_parent_leagues') }}" class="btn btn-outline-light">
+            <i class="bi bi-palette me-1"></i>Parent Leagues
+        </a>
+        {% if is_admin %}
+        <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addLeagueModal">
+            <i class="bi bi-plus-circle me-1"></i>Add League
+        </button>
+        {% endif %}
+    </div>
 </div>
 
 {% if is_admin %}
@@ -23,13 +46,33 @@
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="name" class="form-label">League Name</label>
-                        <select class="form-select" id="name" name="name" required>
-                            <option value="" disabled selected>Select a league…</option>
-                            <option value="Cleveland Men's Doubles Summer League 2026">Cleveland Men's Doubles Summer League 2026 (2 men per pair)</option>
-                            <option value="Cleveland Women's Doubles Summer League 2026">Cleveland Women's Doubles Summer League 2026 (2 women per pair)</option>
-                            <option value="Cleveland Mixed Doubles Summer League 2026">Cleveland Mixed Doubles Summer League 2026 (1 man + 1 woman per pair)</option>
-                        </select>
+                        <label class="form-label">League Name</label>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <select class="form-select league-name-part" id="season_type" name="season_type" required>
+                                    <option value="" disabled selected>Season…</option>
+                                    {% for value, label in season_type_choices %}
+                                    {% if value == 'winter' %}
+                                    <option value="{{ value }}" disabled>{{ label }} (feature unavailable)</option>
+                                    {% else %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-5">
+                                <select class="form-select league-name-part" id="discipline" name="discipline" required>
+                                    <option value="" disabled selected>Discipline…</option>
+                                    {% for value, label in league_discipline_choices %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <input type="number" class="form-control league-name-part" id="year" name="year" min="2000" max="2100" placeholder="2026" required>
+                            </div>
+                        </div>
+                        <div class="form-text">Name preview: <strong id="namePreview">Cleveland … League …</strong></div>
                     </div>
                     <div class="mb-3">
                         <label for="description" class="form-label">Description (optional)</label>
@@ -56,19 +99,26 @@
                         <div class="form-text">The Saturday that marks the beginning of Round 1.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="round5_start_date" class="form-label">Round 5 Start Date (Saturday)</label>
-                        <input type="date" class="form-control" id="round5_start_date" name="round5_start_date">
-                        <div class="form-text">The Saturday Round 5 begins. Gap between Rounds 4 and 5 used for catch-up.</div>
+                        <label class="form-label">Catch-up Weeks</label>
+                        <div id="catchupWeeksContainer"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addCatchupWeekRow('catchupWeeksContainer')">
+                            <i class="bi bi-plus-circle me-1"></i>Add catch-up week
+                        </button>
+                        <div class="form-text">Saturdays with no rounds played. Leave empty for a season that runs in consecutive rounds throughout.</div>
                     </div>
                     <div class="mb-3">
-                        <label for="round9_start_date" class="form-label">Round 9 Start Date (Saturday)</label>
-                        <input type="date" class="form-control" id="round9_start_date" name="round9_start_date">
-                        <div class="form-text">The Saturday Round 9 begins. Gap between Rounds 8 and 9 used for catch-up.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="pairs_per_round" class="form-label">Doubles Pairs per Round</label>
-                        <input type="number" class="form-control" id="pairs_per_round" name="pairs_per_round" min="1" required placeholder="e.g. 3">
-                        <div class="form-text">The number of doubles pairs played per round in each fixture (e.g. 3 means 3 pairs play).</div>
+                        <label for="parent_league_id" class="form-label">Parent League (format)</label>
+                        <select class="form-select" id="parent_league_id" name="parent_league_id" required>
+                            <option value="" disabled selected>Select a parent league…</option>
+                            {% for p in all_parents %}
+                            {% if p.season_type == 'winter' %}
+                            <option value="{{ p.id }}" data-season-type="{{ p.season_type or '' }}" disabled>{{ p.name }} ({{ league_format_label(p.format) }}) — feature unavailable</option>
+                            {% else %}
+                            <option value="{{ p.id }}" data-season-type="{{ p.season_type or '' }}">{{ p.name }} ({{ league_format_label(p.format) }})</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Choosing a parent league locks in this league's doubles format (pairs per round, sets, games). <a href="{{ url_for('list_parent_leagues') }}">Manage parent leagues</a>.</div>
                     </div>
                     <div class="mb-3">
                         <label for="early_season_weeks" class="form-label">Early Season Single-Match Weeks</label>
@@ -78,7 +128,7 @@
                     <div class="mb-3">
                         <label for="team_commitment_threshold" class="form-label">Team Tie Threshold</label>
                         <input type="number" class="form-control" id="team_commitment_threshold" name="team_commitment_threshold" min="0" placeholder="Leave empty or 0 for no restriction">
-                        <div class="form-text">After this many matches for a team, the player may not play for another team in the same or a lower division. They may still move up to a higher-ranked division. Set to 0 or leave empty to disable.</div>
+                        <div class="form-text">After this many matches for a team (counted cumulatively across that team and every higher-ranked team), the player is locked to that team and may not play for any other team ranked the same or lower. They may still move up to a higher-ranked team. Set to 0 or leave empty to disable.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -92,66 +142,85 @@
 {% endif %}{# logged_in — Add League Modal #}
 
 {% if leagues %}
-<div class="row g-4">
-    {% for league in leagues %}
-    <div class="col-md-6 col-lg-4">
-        <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-trophy-fill me-2"></i>{{ league.name }}</span>
-                <span class="badge bg-light text-dark">{{ (league.divisions|list)|length }} divisions</span>
-            </div>
-            <div class="card-body">
-                {% if league.description %}
-                <p class="text-muted small mb-3">{{ league.description }}</p>
-                {% endif %}
-                {% set restriction = league.restrictions.first() %}
-                <div class="mb-3 d-flex flex-wrap gap-1">
-                    {% if restriction and restriction.team_commitment_threshold > 0 %}
-                    <span class="badge bg-warning text-dark">
-                        <i class="bi bi-link-45deg me-1"></i>Division-locked after {{ restriction.team_commitment_threshold }} fixtures
-                    </span>
-                    {% endif %}
-                    {% if restriction and restriction.early_season_weeks > 0 %}
-                    <span class="badge bg-info text-dark">
-                        <i class="bi bi-calendar-week me-1"></i>1 match/week for first {{ restriction.early_season_weeks }} weeks
-                    </span>
-                    {% endif %}
-                    {% if not restriction or (restriction.team_commitment_threshold == 0 and restriction.early_season_weeks == 0) %}
-                    <span class="badge bg-success">
-                        <i class="bi bi-check-circle me-1"></i>No restrictions
-                    </span>
-                    {% endif %}
-                </div>
-                <div class="mb-3 d-flex gap-3">
-                    <div>
-                        <div class="text-muted small">Divisions</div>
-                        <div class="fw-bold">{{ (league.divisions|list)|length }}</div>
+{% for group in league_groups %}
+{% set g_text_colour = contrast_text(group.colour) | trim %}
+{% set g_overlay = 'rgba(255,255,255,0.28)' if g_text_colour == '#ffffff' else 'rgba(0,0,0,0.12)' %}
+{% set btn_outline = 'btn-outline-light' if g_text_colour == '#ffffff' else 'btn-outline-dark' %}
+{% set group_id = 'leaguegrp-' ~ loop.index %}
+<section class="mb-4" aria-labelledby="{{ group_id }}-heading">
+    <button class="btn w-100 d-flex justify-content-between align-items-center league-group-toggle mb-2 {{ '' if group.expanded else 'collapsed' }}"
+            type="button" data-bs-toggle="collapse" data-bs-target="#{{ group_id }}"
+            aria-expanded="{{ 'true' if group.expanded else 'false' }}" aria-controls="{{ group_id }}"
+            style="background-color: {{ group.colour }}; color: {{ g_text_colour }}; border: none;">
+        <span class="fw-semibold" id="{{ group_id }}-heading">
+            <i class="bi bi-trophy me-2" aria-hidden="true"></i>{{ group.label }}
+        </span>
+        <span class="d-flex align-items-center gap-2">
+            <span class="badge" style="background-color: {{ g_overlay }}; color: {{ g_text_colour }};">
+                {{ group.leagues|length }} league{{ 's' if group.leagues|length != 1 else '' }}
+            </span>
+            <i class="bi bi-chevron-down league-group-chevron" aria-hidden="true"></i>
+        </span>
+    </button>
+    <div class="collapse {{ 'show' if group.expanded else '' }}" id="{{ group_id }}">
+        <div class="row g-3">
+            {% for entry in group.leagues %}
+            {% set league = entry.league %}
+            {% set restriction = league.restrictions.first() %}
+            <div class="col-6 col-md-6 col-lg-4">
+                <div class="card h-100" style="background-color: {{ group.colour }}; color: {{ g_text_colour }};">
+                    <div class="card-body d-flex flex-column p-3">
+                        <h6 class="fw-semibold mb-2 text-truncate" title="{{ league.name }}">
+                            <i class="bi bi-trophy-fill me-1" aria-hidden="true"></i>{{ entry.card_label }}
+                        </h6>
+                        <div class="d-flex flex-wrap gap-1 mb-2">
+                            <span class="badge" style="background-color: {{ g_overlay }}; color: {{ g_text_colour }};">
+                                {{ (league.divisions|list)|length }} division{{ 's' if (league.divisions|list)|length != 1 else '' }}
+                            </span>
+                            {% if league.pairs_per_round %}
+                            <span class="badge" style="background-color: {{ g_overlay }}; color: {{ g_text_colour }};">
+                                {{ league.pairs_per_round }} pairs
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-1 mb-3">
+                            {% if restriction and restriction.team_commitment_threshold > 0 %}
+                            <span class="badge bg-warning text-dark" title="Team-locked after {{ restriction.team_commitment_threshold }} fixtures">
+                                <i class="bi bi-link-45deg" aria-hidden="true"></i> tied at {{ restriction.team_commitment_threshold }} fixture{{ 's' if restriction.team_commitment_threshold != 1 else '' }}
+                            </span>
+                            {% endif %}
+                            {% if restriction and restriction.early_season_weeks > 0 %}
+                            <span class="badge bg-info text-dark" title="1 match/week for the first {{ restriction.early_season_weeks }} weeks">
+                                <i class="bi bi-calendar-week" aria-hidden="true"></i> restrictions: {{ restriction.early_season_weeks }} week{{ 's' if restriction.early_season_weeks != 1 else '' }}
+                            </span>
+                            {% endif %}
+                            {% if not restriction or (restriction.team_commitment_threshold == 0 and restriction.early_season_weeks == 0) %}
+                            <span class="badge bg-success" title="No restrictions">
+                                <i class="bi bi-check-circle" aria-hidden="true"></i>
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex gap-1 mt-auto">
+                            <a href="{{ url_for('league_detail', league_id=league.id) }}" class="btn btn-tennis btn-sm flex-grow-1" aria-label="View {{ league.name }}">
+                                View
+                            </a>
+                            {% if is_admin %}
+                            <button type="button" class="btn btn-sm {{ btn_outline }}" data-bs-toggle="modal" data-bs-target="#renameLeagueModal{{ league.id }}" aria-label="Rename {{ league.name }}" title="Rename league">
+                                <i class="bi bi-pencil" aria-hidden="true"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm {{ btn_outline }}" data-bs-toggle="modal" data-bs-target="#deleteLeagueModal{{ league.id }}" aria-label="Delete {{ league.name }}" title="Delete league">
+                                <i class="bi bi-trash" aria-hidden="true"></i>
+                            </button>
+                            {% endif %}
+                        </div>
                     </div>
-                    {% if league.pairs_per_round %}
-                    <div>
-                        <div class="text-muted small">Pairs per round</div>
-                        <div class="fw-bold">{{ league.pairs_per_round }}</div>
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="d-flex gap-1">
-                    <a href="{{ url_for('league_detail', league_id=league.id) }}" class="btn btn-tennis flex-grow-1">
-                        View <i class="bi bi-arrow-right ms-1"></i>
-                    </a>
-                    {% if is_admin %}
-                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#renameLeagueModal{{ league.id }}" title="Rename league">
-                        <i class="bi bi-pencil"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteLeagueModal{{ league.id }}" title="Delete league">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                    {% endif %}
                 </div>
             </div>
+            {% endfor %}
         </div>
     </div>
-    {% endfor %}
-</div>
+</section>
+{% endfor %}
 
 {% if is_admin %}
 <!-- Rename League Modals -->
@@ -220,4 +289,60 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function addCatchupWeekRow(containerId, value) {
+    const container = document.getElementById(containerId);
+    const rowHtml = `
+        <div class="input-group mb-2 catchup-week-row">
+            <input type="date" class="form-control" name="catchup_week_dates" value="${value || ''}">
+            <button type="button" class="btn btn-outline-danger" onclick="this.closest('.catchup-week-row').remove()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    `;
+    container.insertAdjacentHTML('beforeend', rowHtml);
+}
+
+// Live-updates the "{org} {discipline} {season} League {year}" name preview
+// as the three derived-name inputs change, and lets picking a parent league
+// pre-fill the season type from that parent's own badge (if any) as a
+// starting point — the admin can still override it.
+const LEAGUE_NAME_ORG_PREFIX = {{ league_name_org_prefix|tojson }};
+function wireLeagueNamePreview(seasonId, discId, yearId, previewId) {
+    const seasonSel = document.getElementById(seasonId);
+    const discSel = document.getElementById(discId);
+    const yearInput = document.getElementById(yearId);
+    const preview = document.getElementById(previewId);
+    if (!seasonSel || !discSel || !yearInput || !preview) return;
+    function update() {
+        const orgPrefix = LEAGUE_NAME_ORG_PREFIX[seasonSel.value] || 'Cleveland';
+        const seasonLabel = seasonSel.value ? seasonSel.selectedOptions[0].text : '…';
+        const discipline = discSel.value || '…';
+        const year = yearInput.value || '…';
+        preview.textContent = `${orgPrefix} ${discipline} ${seasonLabel} League ${year}`;
+    }
+    [seasonSel, discSel, yearInput].forEach((el) => el.addEventListener('input', update));
+    update();
+}
+
+function wireParentLeagueSeasonSuggest(parentSelectId, seasonSelectId) {
+    const parentSel = document.getElementById(parentSelectId);
+    const seasonSel = document.getElementById(seasonSelectId);
+    if (!parentSel || !seasonSel) return;
+    parentSel.addEventListener('change', function () {
+        const opt = parentSel.selectedOptions[0];
+        const seasonType = opt && opt.dataset.seasonType;
+        if (seasonType && !seasonSel.value) {
+            seasonSel.value = seasonType;
+            seasonSel.dispatchEvent(new Event('input'));
+        }
+    });
+}
+
+wireLeagueNamePreview('season_type', 'discipline', 'year', 'namePreview');
+wireParentLeagueSeasonSuggest('parent_league_id', 'season_type');
+</script>
 {% endblock %}

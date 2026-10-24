@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Fixtures — Team Tracker{% endblock %}
 
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
+{% endmacro %}
+
 {% block extra_css %}
 <style>
     .week-card { transition: none !important; }
@@ -23,6 +32,7 @@
     .fixture-score-col .score-badge { min-width: 1.8rem; display: inline-block; text-align: center; }
     .link-hover:hover { text-decoration: underline !important; }
     .fixture-hidden { display: none !important; }
+    .fixture-season-badge { min-width: 1.6rem; font-weight: 700; }
 </style>
 {% endblock %}
 
@@ -54,6 +64,16 @@
     <div id="filter-bar" class="card mb-0">
     <div class="card-body py-2 px-3">
         <div class="d-flex flex-wrap gap-3 align-items-center">
+            {% if not selected_season_type %}
+            <div class="d-flex align-items-center gap-2">
+                <label class="text-muted small mb-0" for="filter-season">Season</label>
+                <select id="filter-season" class="form-select form-select-sm" style="width:auto">
+                    <option value="">All seasons</option>
+                    {% for b in filter_season_badges %}
+                    <option value="{{ b.type }}">{{ b.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             <div class="d-flex align-items-center gap-2">
                 <label class="text-muted small mb-0" for="filter-league">League</label>
                 <select id="filter-league" class="form-select form-select-sm" style="width:auto">
@@ -63,6 +83,7 @@
                     {% endfor %}
                 </select>
             </div>
+            {% endif %}
             <div class="d-flex align-items-center gap-2">
                 <label class="text-muted small mb-0" for="filter-team">Team</label>
                 <select id="filter-team" class="form-select form-select-sm" style="width:auto">
@@ -127,9 +148,12 @@
                 {% set _eff_league = fixture.league
                     or (fixture.home_team.division.league if fixture.home_team and fixture.home_team.division else none)
                     or (fixture.away_team.division.league if fixture.away_team and fixture.away_team.division else none) %}
-                {% set _round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none, _eff_league.round5_start_date if _eff_league else none, _eff_league.round9_start_date if _eff_league else none) %}
+                {% set _round = fixture.round_label or fixture_round_label(fixture.date, _eff_league.start_date if _eff_league else none, _eff_league.catchup_week_start_dates if _eff_league else none) %}
+                {% set _season_type = fixture_season_types.get(fixture.id) %}
+                {% set _season_badge = season_badges | selectattr('type', 'equalto', _season_type) | first if _season_type else none %}
                 <div class="fixture-item d-flex align-items-center px-3 py-3 border-bottom{% if fixture.id in fixtures_missing_rubber_scores %} fixture-pairs-pending{% endif %}"
                      data-league-id="{{ _eff_league.id if _eff_league else '' }}"
+                     data-season-type="{{ _season_type or '' }}"
                      data-home-team-id="{{ fixture.home_team_id or '' }}"
                      data-away-team-id="{{ fixture.away_team_id or '' }}"
                      data-home-score="{{ fixture.home_score }}"
@@ -189,13 +213,20 @@
                     </div>
                     <!-- Round + League badges (hidden on mobile) -->
                     <div class="flex-shrink-0 d-none d-md-flex align-items-center gap-1 ms-3">
+                        {% if _season_badge and not selected_season_type %}
+                        <span class="badge fixture-season-badge"
+                              style="background: {{ _season_badge.colour }}; color: {{ _season_badge.text_colour }};"
+                              title="{{ _season_badge.label }}">{{ _season_badge.letter }}</span>
+                        {% endif %}
                         {% if _round %}
                         <span class="badge bg-primary text-truncate" style="max-width:90px"
                               title="{{ _round }}">{{ _round }}</span>
                         {% endif %}
                         {% if _eff_league %}
                         {% set _league_label = "Women's" if "Women's" in _eff_league.name else ("Mixed" if "Mixed" in _eff_league.name else ("Men's" if "Men's" in _eff_league.name else _eff_league.name)) %}
-                        <span class="badge bg-secondary"
+                        {% set _fixture_league_colour = discipline_colours.get(_league_label, _eff_league.parent_league.colour if _eff_league.parent_league else '#6c757d') %}
+                        <span class="badge"
+                              style="background-color: {{ _fixture_league_colour }}; color: {{ contrast_text(_fixture_league_colour) | trim }};"
                               title="{{ _eff_league.name }}">{{ _league_label }}</span>
                         {% endif %}
                     </div>
@@ -328,11 +359,12 @@
 
     // Filtering by league / team (runs for all users)
     (function setupFilters() {
+        const filterSeason = document.getElementById('filter-season');
         const filterLeague = document.getElementById('filter-league');
         const filterTeam = document.getElementById('filter-team');
         const filterSummary = document.getElementById('filter-summary');
         const selectAllCb = document.getElementById('select-all-cb');
-        if (!filterLeague) return;
+        if (!filterTeam) return;
 
         function updateWLBadge(item, teamId) {
             var wrap = item.querySelector('.wl-badge-wrap');
@@ -355,18 +387,20 @@
         }
 
         function applyFilters() {
-            const leagueId = filterLeague.value;
+            const seasonType = filterSeason ? filterSeason.value : '';
+            const leagueId = filterLeague ? filterLeague.value : '';
             const teamId = filterTeam.value;
             let visibleTotal = 0;
 
             document.querySelectorAll('.week-section').forEach(function (section) {
                 let visibleInWeek = 0;
                 section.querySelectorAll('.fixture-item').forEach(function (item) {
+                    const matchesSeason = !seasonType || item.dataset.seasonType === seasonType;
                     const matchesLeague = !leagueId || item.dataset.leagueId === leagueId;
                     const matchesTeam = !teamId ||
                         item.dataset.homeTeamId === teamId ||
                         item.dataset.awayTeamId === teamId;
-                    const visible = matchesLeague && matchesTeam;
+                    const visible = matchesSeason && matchesLeague && matchesTeam;
                     item.classList.toggle('fixture-hidden', !visible);
                     if (visible) { visibleInWeek++; visibleTotal++; }
                     updateWLBadge(item, teamId);
@@ -379,7 +413,8 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        filterLeague.addEventListener('change', applyFilters);
+        if (filterSeason) { filterSeason.addEventListener('change', applyFilters); }
+        if (filterLeague) { filterLeague.addEventListener('change', applyFilters); }
         filterTeam.addEventListener('change', applyFilters);
     }());
 

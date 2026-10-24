@@ -76,6 +76,20 @@
     </a>
 </div>
 
+<div class="alert alert-warning d-flex align-items-start mb-4" role="alert">
+    <i class="bi bi-robot me-2 fs-4"></i>
+    <div>
+        <strong>This Help page was mostly written by AI</strong> (Claude), generated directly from the app's code and internal documentation rather than by a human writer. It's kept up to date the same way — an AI drafts and edits it as the app changes. It should be accurate so double-check anything important against what the app actually does, and flag any mistakes to an admin.
+    </div>
+</div>
+
+<div class="alert alert-secondary d-flex align-items-start mb-4" role="alert">
+    <i class="bi bi-trophy-fill me-2 fs-4"></i>
+    <div>
+        <strong>Just here as a team captain?</strong> The <a href="{{ url_for('captain_guide_page') }}">Captain's Handbook</a> is a shorter, captain-only guide covering team setup, squads, results, and the Match Day portal.
+    </div>
+</div>
+
 <div class="row g-4">
 
     <!-- Sidebar table of contents -->
@@ -96,7 +110,9 @@
                     <li><a href="#sec10">Quick reference</a></li>
                     <li><a href="#sec11">Managing accounts</a></li>
                     <li><a href="#sec12">Login activity</a></li>
-                    <li><a href="#sec13">Deployed from code</a></li>
+                    <li><a href="#sec13">Pitchside match-day login</a></li>
+                    <li><a href="#sec14">Deployed from code</a></li>
+                    <li><a href="{{ url_for('captain_guide_page') }}">Captain's Handbook (separate page)</a></li>
                 </ul>
             </div>
         </div>
@@ -142,7 +158,8 @@
             <div class="card-header"><i class="bi bi-house-door me-2"></i>2. The dashboard (home page)</div>
             <div class="card-body">
                 <p>The home page gives a quick overview of the club's activity.</p>
-                <p><strong>Stats row</strong> — Shows the number of leagues, teams, and fixtures recorded in total.</p>
+                <p><strong>Season badges</strong> — The <strong>S / A / V / W</strong> circles next to "Team Tracker" in the top nav (and the matching cards on this page) let you switch between the four season types: Summer, Autumn, Veterans, and Winter. Click one to scope the <strong>Teams</strong> and <strong>Fixtures</strong> pages (and the Teams/Fixtures figures and Eligibility grid on the <strong>Players</strong> page — see below) — plus this dashboard's own stats and fixture feed — to that season (every gender edition — Men's/Women's/Mixed — of the current year's league under that badge, all together). A badge shown greyed out hasn't started yet (no league exists for it). Click the active badge again to clear back to <strong>All Seasons</strong> and see everything club-wide. Your choice is remembered as you navigate between pages until you change it. This does not affect the Leagues page itself or any Admin pages, which always show everything. Note: a team not yet assigned to a division won't appear when a season is selected — clear back to All Seasons to see it.</p>
+                <p><strong>Stats row</strong> — Shows the number of teams and fixtures recorded (scoped to the selected season, if any).</p>
                 <p><strong>Last 7 Days</strong> — Lists fixtures from the past week with scores. Click any fixture row to open its detail page. If there are more than three, click "Show more" to expand.</p>
                 <p><strong>Next 7 Days</strong> — Shows upcoming fixtures so you know what's coming up.</p>
                 <p>Click <strong>View All</strong> to go to the full fixture list.</p>
@@ -153,17 +170,25 @@
         <div class="card mb-4 help-section" id="sec3">
             <div class="card-header"><i class="bi bi-trophy me-2"></i>3. Leagues</div>
             <div class="card-body">
-                <p>Navigate to <strong>Leagues</strong> from the top nav bar. Click a league name to open its detail page, which shows divisions, teams, and eligibility rules.</p>
+                <p>Navigate to <strong>Leagues</strong> from the top nav bar. Click a league name to open its detail page, which shows divisions, teams, and eligibility rules. This page always shows every league — it is not affected by the season badges on the dashboard.</p>
+
+                <h3>Parent leagues <span class="req-admin">admin only</span></h3>
+                <p>Every league belongs to a <strong>parent league</strong> (e.g. "Cleveland Summer League", "Cleveland Autumn League"), viewable from the <strong>Parent Leagues</strong> page (linked from the top of the Leagues page). A parent league owns the doubles format shared by all its leagues — pairs per round, sets per rubber, games per set, the tie-break threshold, and a <strong>Format</strong> selector — plus a colour used to badge its leagues. Once any league is created under a parent, that parent's format fields lock (name, colour, and description can still be changed); this stops the format being changed out from under leagues/fixtures that already depend on it. Parent leagues are pre-configured for the four season types (Summer, Autumn, Veterans, Winter) — there is no option to add a further parent league from the app.</p>
+                <p>The <strong>Format</strong> selector decides the rubber structure and scoring used when entering results for every league under that parent:</p>
+                <ul>
+                    <li><strong>Cleveland Summer and Autumn</strong> (default) — a fixed number of pairs per side (Doubles Pairs per Round) in a full round-robin: each pair plays every opposition pair exactly once, so pairs-per-round also sets the number of rounds (e.g. 3 pairs plays 3 rounds/9 rubbers for Summer, 2 pairs plays 2 rounds/4 rubbers for Autumn). Each rubber's set count and games-per-set come from the parent league's own setup — e.g. Summer is a single set to 8 games with no decider, while Autumn is 2 sets to 6 games with a 7-point tie-break at 6-6, and a champion's tie-break to 10 points if the sets are shared 1-1. Scoring: 2 points per rubber win, 1 point each side for a tied rubber, plus 4 bonus points to whichever side wins more rubbers (split 2-2 if equal).</li>
+                    <li><strong>Cleveland Veterans</strong> — a fixed squad of 2 men + 2 women per side, forming Mens Doubles, Womens Doubles, and 2 mixed pairs who play a full round robin against the opposition's 2 mixed pairs (6 rubbers total). Scoring uses the same 2pt/1pt-tie/4-bonus formula as Cleveland Autumn.</li>
+                    <li><strong>North-East Winter</strong> — the same fixed 2-men + 2-women squad, but 4 fixed rubbers with no rotation: Mens Doubles, Womens Doubles, Mixed Pair 1 v Mixed Pair 1, Mixed Pair 2 v Mixed Pair 2. Every rubber is played to 2 full sets with no deciding 3rd set — a rubber can end 1-1. Scoring is pure set points (1 point per set won, no bonus), so the maximum fixture score is 8.</li>
+                </ul>
 
                 <h3>Creating a league <span class="req-admin">admin only</span></h3>
                 <p>Fill in the <strong>New League</strong> form at the bottom of the Leagues page:</p>
                 <table class="help-table">
                     <tr><th>Field</th><th>What it means</th></tr>
-                    <tr><td>Name</td><td>e.g. "Men's Winter League"</td></tr>
+                    <tr><td>League name</td><td>Choose a Season (Summer/Autumn/Veterans), a Discipline (Men's/Women's/Mixed Doubles), and enter a Year — the name is built from these automatically, e.g. "Cleveland Mixed Doubles Autumn League 2026". A live preview shows the result as you fill them in. Winter is shown greyed out — feature unavailable.</td></tr>
                     <tr><td>Season start date</td><td>The Saturday that Round 1 begins — used to compute round labels on fixtures</td></tr>
-                    <tr><td>Round 5 start date</td><td>The Saturday Round 5 begins; the week before it is automatically used as the first catch-up week</td></tr>
-                    <tr><td>Round 9 start date</td><td>The Saturday Round 9 begins; the week before it is automatically used as the second catch-up week</td></tr>
-                    <tr><td>Doubles pairs per round</td><td>How many pairs play each match (usually 3)</td></tr>
+                    <tr><td>Catch-up weeks</td><td>Add any number of Saturdays with no rounds played (e.g. a midway break) — round numbers skip over them automatically. Leave empty for a league that runs in consecutive rounds throughout, like the Autumn League</td></tr>
+                    <tr><td>Parent league</td><td>Choose an existing parent league (e.g. "Cleveland Summer League") — this sets the doubles format (pairs per round, sets, games) and the rubber structure/scoring format for the league automatically</td></tr>
                     <tr><td>Early season weeks</td><td>Rounds where the "one fixture per player per week" rule applies</td></tr>
                     <tr><td>Team tie threshold</td><td>Fixtures played before a player is locked to a team — counted cumulatively across that team and every higher-ranked team (e.g. 1 fixture for the A team plus 2 for the C team reaches a threshold of 3, locking the player to the C team)</td></tr>
                     <tr><td>Number of divisions</td><td>How many divisions to create immediately</td></tr>
@@ -172,8 +197,9 @@
                 <h3>Other league actions <span class="req-admin">admin only</span></h3>
                 <ul>
                     <li><strong>Edit League</strong> — update any of the fields above from the league detail page.</li>
+                    <li><strong>Parent league</strong> — can only be changed on the league's Edit form before the league has any recorded fixtures.</li>
                     <li><strong>Add Division</strong> — type a division name and click Add on the league detail page.</li>
-                    <li><strong>Assign teams</strong> — use the team checkboxes within a division and click Save Teams.</li>
+                    <li><strong>Add Team</strong> — click Add Team on a division's row to create a new team directly in that division. Teams are always created here, scoped to one league's division — never shared between leagues, even if two seasons have a team with the same name (e.g. "Yarm C Men" in the Summer and Autumn leagues are separate teams).</li>
                     <li><strong>Delete League</strong> — removes the league and all its fixtures permanently.</li>
                 </ul>
             </div>
@@ -184,14 +210,15 @@
             <div class="card-header"><i class="bi bi-people me-2"></i>4. Teams</div>
             <div class="card-body">
                 <p>Navigate to <strong>Teams</strong> from the top nav bar.</p>
-                <p>The Teams page has two sections: a <strong>team list</strong> at the top, and a <strong>squad allocation</strong> view below — a week-by-week breakdown of upcoming fixtures per league where you can reserve players.</p>
+                <p>The Teams page has two views, switched via the toggle at the top: a <strong>Team List</strong> and a <strong>Weekly Allocation</strong> view — a week-by-week breakdown of upcoming fixtures where you can reserve players. Switching to Weekly Allocation shows a league dropdown; pick a league to see its allocation (nothing is shown until you choose one, even if only one league is available).</p>
+                <p>This page respects the season badges — see <a href="#sec2">the dashboard</a> for how to change it. A team not assigned to any division only appears under All Seasons.</p>
 
-                <h3>Creating a team <span class="req-admin">admin only</span></h3>
-                <p>Use the <strong>New Team</strong> form: enter a name, optionally assign a division, and tick <strong>Match fees enabled</strong> if this team tracks fee payments. Click <strong>Create Team</strong>.</p>
+                <p>Teams are <strong>view-only</strong> here — to create a team, go to the team's league on the <a href="#sec3">Leagues page</a> and use <strong>Add Team</strong> on the relevant division. This keeps teams from different league seasons independent, even when they share a name (e.g. "Yarm C Men" playing in both the Summer and Autumn leagues are two separate teams, each with their own roster and fixtures).</p>
 
                 <h3>Team detail page</h3>
                 <p>Click a team name to see its roster, fixtures, and current captain.</p>
                 <p>The player roster shows each player's <strong>Wins</strong>, <strong>Losses</strong>, and <strong>Win %</strong> in two figures: the bold number is their record <em>for this team</em>, and the number in brackets is their record <em>across all leagues combined</em>. For example, <code>3 (10)</code> means 3 rubbers won for this team and 10 rubbers won in total.</p>
+                <p>The <strong>Fixtures</strong> list and the bold "for this team" figures respect the season badges — see <a href="#sec2">the dashboard</a> for how to change it. If a team plays across multiple seasons, switch the selector to see that season's fixtures instead of every fixture the team has ever played.</p>
 
                 <h3>Editing a team <span class="req-login">requires login</span></h3>
                 <p>The <strong>Edit</strong> button (top-right of the team detail page) lets you rename the team and toggle match fees. Both admins and the team's own captain can do this.</p>
@@ -212,6 +239,7 @@
             <div class="card-body">
                 <p>Navigate to <strong>Players</strong> from the top nav bar. Two views are available via the toggle buttons at the top right: <strong>Players</strong> (the default roster table) and <strong>Eligibility</strong> (the grid described below).</p>
                 <p>The <strong>Players</strong> view shows every club member with their gender, membership status, teams, fixtures played, and season ties. Use the <strong>filter boxes</strong> above each column to search.</p>
+                <p>The player list itself always shows every club member, regardless of the selected season badge — name, gender, membership status, and team-play interest are club-wide and don't change with the season. Only the <strong>Teams</strong> and <strong>Fixtures</strong> figures shown per player are scoped to the selected season badge (see <a href="#sec2">the dashboard</a> for how to change it); under "All Seasons" they show a player's teams/fixtures across every league ever.</p>
 
                 <h3>Eligibility Grid</h3>
                 <p>Switch to the <strong>Eligibility</strong> view to see a cross-table of every player (interested in teams) against every team in leagues that have eligibility restrictions configured. Rows are players; columns are teams, grouped by league.</p>
@@ -222,9 +250,9 @@
                     <tr><td>Empty green outline</td><td>Eligible — no appearances yet</td></tr>
                     <tr><td>Green number</td><td>Eligible — N fixtures played (not yet at tie threshold)</td></tr>
                     <tr><td>Yellow number</td><td>Tied to this team — threshold reached</td></tr>
-                    <tr><td>Faded strikethrough number</td><td>Blocked — tied to a different team at the same or a lower division</td></tr>
+                    <tr><td>Faded strikethrough number</td><td>Blocked — tied to a different team ranked the same or lower</td></tr>
                 </table>
-                <p>The grid only appears when at least one league has a team tie threshold set. Players not marked as "interested in team play" are excluded.</p>
+                <p>The grid only appears when at least one league has a team tie threshold set. Players not marked as "interested in team play" are excluded. Unlike the player list above, the grid <strong>is</strong> restricted to players on a team in the selected season badge — pick "All Seasons" to see every interested player.</p>
 
                 <h3>Player detail page</h3>
                 <p>Click a player's name to see their match history, win/loss record, eligibility status per league, and match fee history.</p>
@@ -243,8 +271,8 @@
                 </table>
                 <p>If a similar name already exists, the app will warn you before creating a duplicate.</p>
 
-                <h3>Editing &amp; deleting <span class="req-admin">admin only</span></h3>
-                <p>Use the <strong>Edit</strong> or <strong>Delete</strong> buttons on a player's detail page. Deleting removes the player and all their match records; team rosters are unaffected.</p>
+                <h3>Editing &amp; deactivating <span class="req-admin">admin only</span></h3>
+                <p>Use the <strong>Edit</strong> button on a player's detail page to update their details, including Membership Status. There's no delete — instead, use <strong>Deactivate</strong> to mark a player inactive. Their profile, fixture history, and team memberships are all kept exactly as they are; the player's name just appears faded everywhere, and they can no longer be newly picked for a squad, a rubber, or as captain. Reactivate them any time by editing their Membership Status back to Active.</p>
             </div>
         </div>
 
@@ -253,12 +281,12 @@
             <div class="card-header"><i class="bi bi-journal-text me-2"></i>6. Fixtures</div>
             <div class="card-body">
                 <p>Navigate to <strong>Fixtures</strong> from the top nav bar. Fixtures are grouped by calendar week (Saturday–Friday). The current week is highlighted and scrolled into view automatically.</p>
-                <p>Each row shows the date, home vs away team, score (or a stopwatch if unplayed), round label, and league. Click either team name to open the fixture from that team's perspective.</p>
-                <p>Use the <strong>League</strong> and <strong>Team</strong> filter dropdowns at the top to narrow the list.</p>
+                <p>Each row shows the date, home vs away team, score (or a stopwatch if unplayed), round label, and league. Under <strong>All Seasons</strong>, a small coloured letter badge (matching the S/A/V/W <a href="#sec2">season badges</a>) also shows which season type each fixture belongs to. Click either team name to open the fixture from that team's perspective.</p>
+                <p>Use the <strong>Season</strong>, <strong>League</strong>, and <strong>Team</strong> filter dropdowns at the top to narrow the list. The Season and League filters only appear under <strong>All Seasons</strong> — once you've picked a season badge in the top nav, the list is already scoped to it.</p>
 
                 <h3>Adding a fixture <span class="req-admin">admin only</span></h3>
-                <p><strong>Import</strong> — upload a <code>.ics</code> file exported from Google Calendar. The app matches team names automatically, shows a review screen, and skips duplicates.</p>
-                <p><strong>Add Fixture</strong> — manually enter a date, home team, away team, and league, then click Save Fixture. The correct number of rubber slots is created automatically.</p>
+                <p><strong>Import</strong> — upload a <code>.ics</code> file exported from Google Calendar. The app matches team names automatically (scoped to your team's own league, so an identically-named team from a different season can't be matched by mistake), shows a review screen, and skips duplicates.</p>
+                <p><strong>Add Fixture</strong> — manually enter a date, home team, away team, and league, then click Save Fixture. Picking a league first narrows the team dropdowns to just that league's teams — useful since the same team name (e.g. "Yarm A Men") can exist as an independent team in more than one season. The correct number of rubber slots is created automatically.</p>
 
                 <h3>Bulk operations <span class="req-admin">admin only</span></h3>
                 <p>Tick fixture checkboxes (or use <strong>Select all</strong>), then use <strong>Set League</strong> to reassign fixtures in bulk, or <strong>Delete</strong> to remove them all at once.</p>
@@ -269,23 +297,30 @@
         <div class="card mb-4 help-section" id="sec7">
             <div class="card-header"><i class="bi bi-pencil-square me-2"></i>7. Entering match results</div>
             <div class="card-body">
-                <p>Open a fixture from the Fixtures list or a team page. The <strong>Pairs</strong> table shows one row per pair, with three set columns (one rubber per column).</p>
+                <p>Open a fixture from the Fixtures list or a team page. What the results grid looks like depends on the league's <strong>Format</strong> (set on its parent league — see section 3).</p>
 
-                <h3>How scoring works</h3>
-                <p>Each pair plays three rubbers against different opposition pairs. For each rubber:</p>
+                <h3>Cleveland Summer and Autumn leagues (default format: Cleveland Autumn)</h3>
+                <p>The <strong>Pairs</strong> table shows one row per pair, with one rubber column per opposition pair — the number of pairs (and so rubber columns) comes from the league's own setup, e.g. 3 pairs / 9 rubbers for Summer, 2 pairs / 4 rubbers for Autumn. Each rubber's set shape also comes from the league's setup: Summer is a single set to 8 games with no decider, while Autumn is 2 sets to 6 games with a 7-point tie-break at 6-6, plus a champion's tie-break if the sets split 1-1. For each rubber:</p>
                 <ul>
-                    <li>Enter your team's score (left) and the opposition score (right).</li>
+                    <li>Enter your team's score (left) and the opposition score (right) for <strong>Set 1</strong> (and <strong>Set 2</strong>, for leagues that play 2 sets, e.g. Autumn).</li>
+                    <li>If a league plays 2 sets and they're shared 1-1, a third row appears automatically for the <strong>champion's tie-break</strong> (first to 10 points) that decides the rubber.</li>
                     <li><strong>T</strong> — marks the rubber as a tie (no score needed).</li>
                     <li><strong>W</strong> — marks a walkover. Click once for a Yarm walkover, again to switch to an opposition walkover, again to clear.</li>
                 </ul>
                 <p><em>Scoring: 2 pts per rubber win · 1 pt each for a tie · 4 bonus pts to the team winning more rubbers</em></p>
-
-                <h3>Steps to enter results <span class="req-login">captain or admin</span></h3>
                 <ol>
                     <li><strong>Select players</strong> — choose two players per row from the dropdowns. Score boxes are locked until both are selected.</li>
                     <li><strong>Enter scores</strong> — fill in (or mark T/W) every rubber. The Save button activates only when all cells are complete.</li>
                     <li>Click <strong>Save Results</strong>. The overall fixture score updates automatically.</li>
                 </ol>
+
+                <h3>Cleveland Veterans and North-East Winter</h3>
+                <p>Instead of a pairs grid, a <strong>Squad</strong> picker lets you choose 2 mixed pairs (a man and a woman each) — pair 1's man and pair 2's man form Mens Doubles, and pair 1's woman and pair 2's woman form Womens Doubles, so there's no separate player selection for those rubbers. The <strong>Rubbers</strong> table below lists each fixed rubber by name (e.g. "Mens Doubles", "Mixed 1 v Mixed 2"):</p>
+                <ul>
+                    <li><strong>Cleveland Veterans</strong> — 6 rubbers, one set each, with the same T/W controls and 2pt/1pt-tie/4-bonus scoring as Cleveland Autumn.</li>
+                    <li><strong>North-East Winter</strong> — 4 rubbers, two sets each (no tie-breaking 3rd set — a rubber can end 1-1). <strong>W</strong> here is a single per-rubber walkover that forfeits both sets. Scoring is 1 point per set won, with no bonus points.</li>
+                </ul>
+                <p>In a fixture between two of the club's own teams, only the home side's captain enters scores — the away side's view is read-only for scores (they still pick their own squad) to avoid the two captains submitting conflicting numbers.</p>
 
                 <h3>Editing fixture details <span class="req-login">captain or admin</span></h3>
                 <p><strong>Edit</strong> (top-right) — change the date, teams, league, or overall score. The <strong>Round</strong> field defaults to auto (derived from the league's start date); pick a specific round to override it for rearranged matches. Captains can edit fixtures involving their team.</p>
@@ -303,15 +338,15 @@
             <div class="card-header"><i class="bi bi-people-fill me-2"></i>8. Managing squads</div>
             <div class="card-body">
                 <p>A <strong>squad</strong> is the list of players reserved for a fixture before it's played — useful for planning and flagging eligibility issues in advance.</p>
-                <p>Squads can be managed from the <strong>Teams page</strong> (week-by-week allocation view) or from an individual <strong>fixture detail page</strong>.</p>
+                <p>Squads can be managed from the <strong>Teams page</strong> (Weekly Allocation view — select a league from the dropdown to see it) or from an individual <strong>fixture detail page</strong>.</p>
 
                 <h3>Selecting players <span class="req-login">captain or admin</span></h3>
                 <p>In the <strong>Squad</strong> section on a fixture page, tick the players you want and click <strong>Save Squad</strong>. Each player shows a status icon:</p>
                 <table class="help-table">
                     <tr><th>Icon</th><th>Meaning</th></tr>
                     <tr><td>✓ Green</td><td>Tied to this team for the season — all good</td></tr>
-                    <tr><td>⚠ Yellow</td><td>Selecting this player will tie them to this team — they'll be blocked from lower divisions after this</td></tr>
-                    <tr><td>⊘ Red</td><td>Ineligible — already tied to a different team at the same or lower division</td></tr>
+                    <tr><td>⚠ Yellow</td><td>Selecting this player will tie them to this team — they'll be blocked from lower-ranked teams after this</td></tr>
+                    <tr><td>⊘ Red</td><td>Ineligible — already tied to a different team ranked the same or lower</td></tr>
                 </table>
                 <p>If a tie would be triggered, a confirmation popup explains this before saving.</p>
 
@@ -320,7 +355,7 @@
                     <li><strong>Early season weeks</strong> — during the first N rounds (set per league), a player can only appear in one fixture per week across all teams.</li>
                     <li><strong>Team tie</strong> — a player's fixtures for a team count towards that team <em>and every lower-ranked team</em>. Once the cumulative total for a team and everything above it reaches the threshold, the player is locked to that team's tier (e.g. 1 fixture for the A team plus 2 for the C team reaches a threshold of 3, locking the player to C even though neither team alone hit the threshold). They can still be picked for a <em>higher</em> team, but not a lower one.</li>
                 </ul>
-                <p>A player's current tie status is shown on their individual player page.</p>
+                <p>A player's current tie status is shown on their individual player page — this League Eligibility section, the summary stats above it, and the team badges next to the player's name only appear once a season badge is selected in the top nav (there's no single "current" league to show under All Seasons). Match History always lists every fixture — filtered to the selected season badge if one is active, or every season with a small coloured letter badge per row under All Seasons.</p>
             </div>
         </div>
 
@@ -375,10 +410,11 @@
                 <h3>Adding an admin <span class="req-admin">admin only</span></h3>
                 <ol>
                     <li>Go to <strong>Admin → User Access</strong>.</li>
-                    <li>Enter the new admin's email address, select <strong>Admin</strong> as the access level, and click <strong>Add user</strong>.</li>
+                    <li>Enter the new admin's email address, select <strong>Admin</strong> as the access level, optionally pick a <strong>Linked player</strong>, and click <strong>Add user</strong>.</li>
                     <li>Tell them to go to <code>/login</code>, enter their email, and click the sign-in link that Firebase emails them.</li>
                 </ol>
                 <p>No password is set — sign-in always uses an emailed link. Any Firebase user not assigned as a captain is treated as an admin.</p>
+                <p>Linking a player when adding an admin also lets them use the <a href="#sec13">pitchside match-day login</a> (email + last 4 digits of that player's LTA number) — seeing every fixture, not just ones for a captained team. This is optional and only affects the pitchside login; it doesn't change their normal admin access.</p>
 
                 <h3>Adding a captain <span class="req-admin">admin only</span></h3>
                 <p>Captain accounts give a team captain access to manage their team's fixtures without full admin privileges.</p>
@@ -389,6 +425,9 @@
                     <li>Tell them to go to <code>/login</code> and sign in with their email.</li>
                 </ol>
                 <p>On sign-in, they will have captain-level access. If a captain is linked to a player who captains multiple teams, they can manage fixtures for all of those teams.</p>
+
+                <h3>Linking or changing a player <span class="req-admin">admin only</span></h3>
+                <p>Click the <i class="bi bi-person-lines-fill"></i> button next to any account (including your own) to set, change, or remove its linked player at any time — without changing their role. For a captain this is the player their squad/scores/fee permissions are tied to; for an admin it's optional and only enables the <a href="#sec13">pitchside match-day login</a>.</p>
 
                 <h3>Removing a user <span class="req-admin">admin only</span></h3>
                 <p>On the User Access page, click the <i class="bi bi-trash"></i> button next to the account and confirm. The Firebase account is deleted immediately — they will no longer be able to sign in. You cannot delete your own account.</p>
@@ -414,15 +453,55 @@
 
         <!-- 13 -->
         <div class="card mb-4 help-section" id="sec13">
-            <div class="card-header"><i class="bi bi-github me-2"></i>13. Deployed from code</div>
+            <div class="card-header"><i class="bi bi-phone me-2"></i>13. Pitchside match-day login</div>
+            <div class="card-body">
+                <p>A separate, lightweight login lets a captain fill in a scoresheet from their phone while actually at a match — as a memory aid alongside the paper scorecard used to submit results to the league. It does <strong>not</strong> touch the real fixture data until an admin or captain reviews and confirms it afterwards, and it doesn't affect (or get affected by) who's signed in to the main app.</p>
+
+                <h3>Logging in at the match</h3>
+                <p>From the normal sign-in page, follow the <strong>"Captain at a match?"</strong> link, or go straight to <code>/pitchside/login</code>. Enter the email address and the <strong>last 4 digits of the LTA number</strong> recorded against your player profile — no sign-in link or password needed, and any number of captains can be logged in this way at once, at different venues, independently of whoever (if anyone) is signed in to the main app.</p>
+                <p>You'll be shown a list of fixtures to choose from, covering <strong>today and the next few days</strong> (10 by default — an admin can change this window's length at <strong>Admin &rarr; Settings</strong>) — so you can open an upcoming fixture well ahead of time to submit Yarm's pairs in preparation, then come back and add scores once it's actually played.</p>
+                <p><strong>Admins</strong> use this exact same login (also linked to a player profile of your own — ask another admin to set this up via <strong>Admin &rarr; User Access</strong> if you don't have one), but see <em>every</em> fixture in that window rather than only ones for a team you captain, and choose which side you're entering for when both teams are tracked in the app.</p>
+
+                <h3>Filling in the scoresheet</h3>
+                <p>The form has two steps, shaped by the fixture's league Format (see section 3):</p>
+                <p><strong>Cleveland Summer and Autumn leagues</strong> — matches the standard doubles format (a fixed number of pairs per side, each playing every opposition pair once). Pairs-per-round and set shape come from the league's own setup: Summer plays 3 pairs / 9 rubbers, each a single set to 8 games with no decider; Autumn plays 2 pairs / 4 rubbers, each 2 sets to 6 games with a 7-point tie-break at 6-6 and a champion's tie-break if the sets split 1-1.</p>
+                <ol>
+                    <li><strong>Pairs</strong> — enter your team's pairs (typed freely, with suggestions limited to players currently on that team's roster) and the opponent's pairs (typed freely, no suggestions). Click <strong>Continue to Scores</strong> when ready.</li>
+                    <li><strong>Scores</strong> — a section per pair, showing that pair's rubbers (one per opposition pair) and the opposition for each. Each rubber's boxes follow the league's own setup: a single Set 1 box for Summer (no decider), or Set 1 and Set 2 for Autumn (2 sets to 6 games), with a champion's tie-break box (first to 10) appearing automatically if Autumn's sets are shared 1-1. Fill in any or all of them, in any order, as results come in. Tap <strong>W/O</strong> on a rubber to mark it a walkover instead of entering a score — tap again to switch which side won, and again to clear it. Use <strong>Back to Pairs</strong> to fix a name.</li>
+                </ol>
+                <p><strong>Cleveland Veterans</strong> and <strong>North-East Winter</strong> — no rotation, just a flat list of fixed rubbers:</p>
+                <ol>
+                    <li><strong>Squad</strong> — enter your team's 2 mixed pairs (man + woman each, same free-text/suggestion behaviour as above, limited to that team's roster) and the opponent's 2 mixed pairs. Click <strong>Continue to Scores</strong> when ready.</li>
+                    <li><strong>Scores</strong> — one row per fixed rubber (e.g. "Mens Doubles", "Mixed Pair 2"), with 1 or 2 sets to fill in depending on the format. Tap <strong>W/O</strong> to mark the whole rubber a walkover — tap again to switch which side won, and again to clear it.</li>
+                </ol>
+                <ul>
+                    <li><strong>Save Progress</strong> — saves what's entered so far. Safe to use repeatedly throughout the match; nothing is written to the real fixture yet.</li>
+                    <li><strong>Submit Final</strong> — marks the scoresheet as finished and ready for review. You can still make changes and save again afterwards if needed.</li>
+                </ul>
+
+                <h3>Confirming afterwards <span class="req-login">captain or admin</span></h3>
+                <p>Once submitted, a banner appears on the fixture's page (visible to admins and captains of either team) linking to a review screen — the normal manual fixture entry form, pre-filled with everything entered pitchside. Check it over, correct anything needed, and save to update the fixture's real rubbers, results, and score — exactly as if it had been typed in directly.</p>
+                <p>Only an <strong>admin</strong> can register a brand-new player. If a captain confirms a scoresheet with a name that doesn't match any existing player, saving is blocked with an error asking for the player to be added via <strong>Players</strong> first — an admin doing the confirm can still add them on the spot as before. Once registered, a player is a club-wide record, available for every team and season from then on. The player name fields on this screen suggest matching names from every club member as you type, so an existing player from a previous season can be found without typing their name exactly right.</p>
+                <p>This only applies to <strong>your own team's</strong> names. The opponent's names (no suggestions, typed freely) are never registered as players and never appear on <strong>Players</strong> — they're kept purely for reference on this confirm screen, since the app only tracks membership for our own club.</p>
+            </div>
+        </div>
+
+        <!-- 14 -->
+        <div class="card mb-4 help-section" id="sec14">
+            <div class="card-header"><i class="bi bi-github me-2"></i>14. Deployed from code</div>
             <div class="card-body">
                 <p>Team Tracker is open source. The full source code is available on GitHub: <a href="https://github.com/epjackson/team-tracker" target="_blank" rel="noopener noreferrer">github.com/epjackson/team-tracker</a></p>
                 <table class="help-table">
                     <tr><th style="width:110px">Date</th><th>Change</th></tr>
-                    <tr><td>6 Aug 2026</td><td>Team tie threshold now counts fixtures cumulatively across a team and every higher-ranked team, instead of per specific team</td></tr>
-                    <tr><td>29 Jun 2026</td><td>Walkover cycling (home / away / clear); eligibility logic and player summary refinements</td></tr>
-                    <tr><td>20 Jun 2026</td><td>Sign-in and captain access; match fees; squad management; login activity log; admin user management</td></tr>
-                    <tr><td>9 May 2026</td><td>Add/edit player forms; ICS fixture import; fixtures grouped by calendar week</td></tr>
+                    <tr><td>30 Aug 2026</td><td>Opponent names on the match-day confirm/manual entry screens no longer get registered as real players. The Autumn parent league now seeds (and self-corrects) the right pairs/sets setup automatically. Cleveland Autumn rubber count and scoring now follow each league's actual pairs/sets setup instead of a fixed shape.</td></tr>
+                    <tr><td>29 Aug 2026</td><td>Cleveland Autumn rubbers are now scored as 2 sets to 6 games with a champion's tie-break. Adding a fixture now scopes team choices to the selected league.</td></tr>
+                    <tr><td>23 Aug 2026</td><td>New player registration restricted to admins only</td></tr>
+                    <tr><td>9 Aug 2026</td><td>Pitchside scoresheet reorganised into per-pair sections; added walkover option</td></tr>
+                    <tr><td>8 Aug 2026</td><td>Pitchside match-day captain login and scoresheet added</td></tr>
+                    <tr><td>6 Aug 2026</td><td>Team tie threshold now counts cumulatively across ranked teams</td></tr>
+                    <tr><td>29 Jun 2026</td><td>Walkover cycling; eligibility and player summary refinements</td></tr>
+                    <tr><td>20 Jun 2026</td><td>Sign-in and captain access; match fees; squad management; activity log; admin user management</td></tr>
+                    <tr><td>9 May 2026</td><td>Add/edit player forms; ICS fixture import; fixtures grouped by week</td></tr>
                     <tr><td>7 May 2026</td><td>Initial release</td></tr>
                 </table>
             </div>

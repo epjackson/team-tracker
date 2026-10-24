@@ -1,6 +1,21 @@
 {% extends "base.html" %}
 {% block title %}{{ player.name }} — Team Tracker{% endblock %}
 
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
+{% endmacro %}
+
+{% macro team_badge(team, extra_class='') %}
+{%- set _colour = team.division.league.parent_league.colour if (team.division and team.division.league.parent_league) else '#6c757d' -%}
+<a href="{{ url_for('team_detail', team_id=team.id) }}" class="badge text-decoration-none {{ extra_class }}"
+   style="background-color: {{ _colour }}; color: {{ contrast_text(_colour) | trim }};">{{ team.name }}</a>
+{%- endmacro %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -10,7 +25,10 @@
             <i class="bi bi-arrow-left me-1"></i>Back
         </a>
         <h2 class="text-white mb-0">
-            <i class="bi bi-person me-2"></i>{{ player.name }}
+            <i class="bi bi-person me-2"></i><span class="{% if player.membership_status == 'inactive' %}player-inactive{% endif %}">{{ player.name }}</span>
+            {% if player.membership_status == 'inactive' %}
+            <span class="badge bg-secondary ms-2 fs-6 align-middle">Inactive</span>
+            {% endif %}
             {% set captaincies = player.captaincies %}
             {% if captaincies %}
             <span class="badge bg-warning text-dark ms-2 fs-6 align-middle"
@@ -38,78 +56,82 @@
         {% endif %}
     </div>
     <div class="d-flex gap-2">
+        {% if selected_season_type %}
         <div>
-            {% for team in player.teams %}
-            <a href="{{ url_for('team_detail', team_id=team.id) }}" class="badge bg-info text-decoration-none me-1">{{ team.name }}</a>
+            {% for team in season_teams %}
+            {{ team_badge(team, 'me-1') }}
             {% endfor %}
         </div>
+        {% endif %}
         {% if is_admin %}
         <a href="{{ url_for('admin_add_player_details') }}" class="btn btn-outline-success ms-2">
             <i class="bi bi-person-plus me-1"></i>Add Another Player
         </a>
+        {% if player.membership_status == 'active' %}
         <button class="btn btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#deletePlayerModal">
-            <i class="bi bi-trash me-1"></i>Delete
+            <i class="bi bi-slash-circle me-1"></i>Deactivate
         </button>
+        {% endif %}
         {% endif %}
     </div>
 </div>
 
-{% if is_admin %}
-<!-- Delete Player Modal -->
+{% if is_admin and player.membership_status == 'active' %}
+<!-- Deactivate Player Modal -->
 <div class="modal fade" id="deletePlayerModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('delete_player', player_id=player.id) }}">
+            <form method="POST" action="{{ url_for('deactivate_player', player_id=player.id) }}">
                 <div class="modal-header bg-danger">
-                    <h5 class="modal-title text-white">Delete Player</h5>
+                    <h5 class="modal-title text-white">Deactivate Player</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-danger"><strong>Warning: This action cannot be undone!</strong></p>
-                    <p>Are you sure you want to delete the player <strong>"{{ player.name }}"</strong>?</p>
+                    <p>Are you sure you want to deactivate <strong>"{{ player.name }}"</strong>?</p>
                     <p class="text-muted">This will:</p>
                     <ul class="text-muted">
-                        <li>Remove the player profile from the system</li>
-                        <li>Delete all {{ total_rubbers }} rubber records</li>
-                        <li>Remove them from all teams ({{ player.teams|length }} team(s))</li>
+                        <li>Keep their profile, {{ total_rubbers }} rubber record(s), and team memberships intact — nothing is deleted</li>
+                        <li>Fade their name throughout the app</li>
+                        <li>Stop them being newly selected for squads, rubbers, or captaincy</li>
                     </ul>
-                    <p class="text-warning"><strong>This cannot be reversed.</strong></p>
+                    <p class="text-muted">Reactivate any time via Edit → Membership Status.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Delete Player</button>
+                    <button type="submit" class="btn btn-danger">Deactivate Player</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
-{% endif %}{# logged_in — delete player modal #}
+{% endif %}{# logged_in — deactivate player modal #}
 
+{% if selected_season_type %}
 <!-- Stats cards -->
 <div class="row g-4 mb-4">
     <div class="col-md-3">
         <div class="card stat-card">
-            <div class="stat-number">{{ wins + losses }}</div>
+            <div class="stat-number">{{ season_wins + season_losses }}</div>
             <div class="stat-label">Rubbers Played</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
-            <div class="stat-number text-success">{{ wins }}</div>
+            <div class="stat-number text-success">{{ season_wins }}</div>
             <div class="stat-label">Rubbers Won</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
-            <div class="stat-number text-danger">{{ losses }}</div>
+            <div class="stat-number text-danger">{{ season_losses }}</div>
             <div class="stat-label">Rubbers Lost</div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card stat-card">
             <div class="stat-number">
-                {% if wins + losses > 0 %}
-                    {{ '%.0f'|format(wins / (wins + losses) * 100) }}%
+                {% if season_wins + season_losses > 0 %}
+                    {{ '%.0f'|format(season_wins / (season_wins + season_losses) * 100) }}%
                 {% else %}
                     —
                 {% endif %}
@@ -118,6 +140,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- Eligibility info -->
 {% if eligibility_info %}
@@ -197,21 +220,24 @@
         <table class="table table-hover mb-0" style="table-layout:fixed;">
             {% if is_admin %}
             <colgroup>
-                <col style="width:55%;">
-                <col style="width:18%;">
+                <col style="width:45%;">
+                <col style="width:12%;">
+                <col style="width:16%;">
                 <col style="width:17%;">
                 <col style="width:10%;">
             </colgroup>
             {% else %}
             <colgroup>
-                <col style="width:62%;">
-                <col style="width:20%;">
+                <col style="width:50%;">
+                <col style="width:14%;">
+                <col style="width:18%;">
                 <col style="width:18%;">
             </colgroup>
             {% endif %}
             <thead>
                 <tr>
                     <th>Fixture</th>
+                    <th class="text-center">Season</th>
                     <th class="text-center">Team</th>
                     <th class="text-center">Result</th>
                     {% if is_admin %}<th class="text-center">Fee</th>{% endif %}
@@ -227,8 +253,15 @@
                         </a>
                     </td>
                     <td class="text-center">
+                        {% if row.season_badge %}
+                        <span class="badge" style="background-color: {{ row.season_badge.colour }}; color: {{ row.season_badge.text_colour }};" data-bs-toggle="tooltip" title="{{ row.season_badge.label }}">{{ row.season_badge.letter }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
                         {% if row.player_team %}
-                        <a href="{{ url_for('team_detail', team_id=row.player_team.id) }}" class="badge bg-info text-decoration-none">{{ row.player_team.name }}</a>
+                        {{ team_badge(row.player_team) }}
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}

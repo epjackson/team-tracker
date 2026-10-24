@@ -1,0 +1,12 @@
+---
+# Checkov configuration — picked up automatically from the repo root.
+# Docs: https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html
+framework:
+  - terraform
+skip-path:
+  - \.terraform
+skip-check:
+  # The app intentionally runs as the App Engine default service account
+  # (terraform/src/app/iam.tf grants it the roles it needs). Remove this skip
+  # if/when the app moves to a dedicated user-managed service account.
+  - CKV_GCP_46

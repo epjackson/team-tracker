@@ -10,12 +10,57 @@
   {%- endif -%}
 {% endmacro %}
 
-{% macro category_badge_class(cat) %}
-  {%- if cat == 'mens' -%}bg-primary
-  {%- elif cat == 'womens' -%}bg-pink
-  {%- elif cat == 'mixed' -%}bg-success
-  {%- else -%}bg-secondary
-  {%- endif -%}
+{% macro team_card(team, col_class, live_team_ids=[]) %}
+{% set colour = team.division.league.parent_league.colour if (team.division and team.division.league.parent_league) else '#6c757d' %}
+{% set text_colour = contrast_text(colour) | trim %}
+{% set overlay = 'rgba(255,255,255,0.28)' if text_colour == '#ffffff' else 'rgba(0,0,0,0.12)' %}
+{% set btn_outline = 'btn-outline-light' if text_colour == '#ffffff' else 'btn-outline-dark' %}
+<div class="{{ col_class }}">
+    <div class="card h-100" style="background-color: {{ colour }}; color: {{ text_colour }};">
+        <div class="card-body d-flex flex-column p-3">
+            <h6 class="fw-semibold mb-2 text-truncate" title="{{ team.name }}">
+                <i class="bi bi-people-fill me-1" aria-hidden="true"></i>{{ team.name }}
+                {% if team.id in live_team_ids %}
+                <span class="badge bg-danger live-badge ms-1" title="Fixture in progress — scores not yet entered">
+                    <i class="bi bi-broadcast" aria-hidden="true"></i> LIVE
+                </span>
+                {% endif %}
+            </h6>
+            {% set player_count = (team.players|list)|length %}
+            {% set fixture_count = (team.home_fixtures|list)|length + (team.away_fixtures|list)|length %}
+            <div class="d-flex align-items-center gap-1 mb-3" style="flex-wrap: nowrap; overflow-x: auto;">
+                {% if team.division %}
+                <span class="badge flex-shrink-0" style="background-color: {{ overlay }}; color: {{ text_colour }};">{{ team.division.name }}</span>
+                {% endif %}
+                <span class="badge flex-shrink-0" style="background-color: {{ overlay }}; color: {{ text_colour }};">
+                    <i class="bi bi-person-fill" aria-hidden="true"></i> {{ player_count }} player{{ 's' if player_count != 1 else '' }}
+                </span>
+                <span class="badge flex-shrink-0" style="background-color: {{ overlay }}; color: {{ text_colour }};">
+                    <i class="bi bi-journal-text" aria-hidden="true"></i> {{ fixture_count }} fixture{{ 's' if fixture_count != 1 else '' }}
+                </span>
+            </div>
+            <div class="d-flex gap-1 mt-auto">
+                <a href="{{ url_for('team_detail', team_id=team.id) }}" class="btn btn-tennis btn-sm flex-grow-1">
+                    View
+                </a>
+                {% if is_admin %}
+                <button type="button" class="btn btn-sm {{ btn_outline }}" data-bs-toggle="modal" data-bs-target="#deleteTeamModal{{ team.id }}" aria-label="Delete {{ team.name }}" title="Delete team">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro contrast_text(hex) %}
+{%- set h = (hex or '#6c757d').lstrip('#') -%}
+{%- set r = h[0:2]|int(108, 16) -%}
+{%- set g = h[2:4]|int(117, 16) -%}
+{%- set b = h[4:6]|int(125, 16) -%}
+{%- set yiq = (r * 299 + g * 587 + b * 114) / 1000 -%}
+{%- if yiq >= 150 -%}#212529{%- else -%}#ffffff{%- endif -%}
 {% endmacro %}
 
 {% block extra_css %}
@@ -25,82 +70,36 @@
   .alloc-ts .ts-control { padding: 0.15rem 0.4rem; font-size: 0.75rem; min-height: 0; border-style: dashed; background: transparent; color: #6c757d; }
   .alloc-ts .ts-control input { font-size: 0.75rem; }
   .alloc-ts .ts-dropdown { font-size: 0.8rem; }
+  .team-group-toggle { transition: opacity 0.15s; }
+  .team-group-toggle:hover { opacity: 0.9; }
+  .team-group-chevron { transition: transform 0.2s; }
+  .team-group-toggle.collapsed .team-group-chevron { transform: rotate(-90deg); }
+  .live-badge { animation: live-badge-pulse 1.6s ease-in-out infinite; vertical-align: middle; font-size: 0.65rem; }
+  @keyframes live-badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<style>
-  .bg-pink { background-color: #d63384 !important; }
-</style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="text-white mb-0"><i class="bi bi-people me-2"></i>Teams</h2>
-    {% if is_admin %}
-    <button class="btn btn-tennis" data-bs-toggle="modal" data-bs-target="#addTeamModal">
-        <i class="bi bi-plus-circle me-1"></i>Add Team
-    </button>
+    <div>
+        <h2 class="text-white mb-0"><i class="bi bi-people me-2"></i>Teams</h2>
+        <small class="text-white-50">Showing: {{ selected_season_label }}</small>
+    </div>
+    {% if (is_admin or captain_team_ids or user_role == 'viewer') and allocation_leagues %}
+    <div class="btn-group" role="group" aria-label="Teams view">
+        <button type="button" id="teams-view-list-btn" class="btn btn-light active">
+            <i class="bi bi-grid-3x3-gap me-1"></i>Team List
+        </button>
+        <button type="button" id="teams-view-alloc-btn" class="btn btn-outline-light">
+            <i class="bi bi-calendar-week me-1"></i>Weekly Allocation
+        </button>
+    </div>
     {% endif %}
 </div>
-
-{% if is_admin %}
-<!-- Add Team Modal -->
-<div class="modal fade" id="addTeamModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="{{ url_for('add_team') }}">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New Team</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Team Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required placeholder="e.g. Riverside A">
-                    </div>
-                    <div class="mb-3">
-                        <label for="division_id" class="form-label">Division (optional)</label>
-                        {% set ns_lg = namespace(mens=[], womens=[], mixed=[], other=[]) %}
-                        {% for league in leagues %}
-                          {% if 'Women' in league.name %}{% set _ = ns_lg.womens.append(league) %}
-                          {% elif 'Mixed' in league.name %}{% set _ = ns_lg.mixed.append(league) %}
-                          {% elif 'Men' in league.name %}{% set _ = ns_lg.mens.append(league) %}
-                          {% else %}{% set _ = ns_lg.other.append(league) %}
-                          {% endif %}
-                        {% endfor %}
-                        <select class="form-select" id="division_id" name="division_id">
-                            <option value="">— No division —</option>
-                            {% for label, cat_leagues in [("Men's", ns_lg.mens), ("Women's", ns_lg.womens), ("Mixed", ns_lg.mixed), ("Other", ns_lg.other)] %}
-                            {% if cat_leagues %}
-                            <optgroup label="{{ label }}">
-                                {% for league in cat_leagues %}
-                                {% for division in league.divisions.all() %}
-                                <option value="{{ division.id }}">{{ league.name }} — {{ division.name }}</option>
-                                {% endfor %}
-                                {% endfor %}
-                            </optgroup>
-                            {% endif %}
-                            {% endfor %}
-                        </select>
-                        <div class="form-text">Assign this team to a league division, or leave unassigned.</div>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="match_fees_enabled" name="match_fees_enabled" value="1">
-                            <label class="form-check-label" for="match_fees_enabled">Enable match fee records</label>
-                        </div>
-                        <div class="form-text">Track whether players have paid their match fee for each fixture.</div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-tennis">Create Team</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-{% endif %}{# is_admin — Add Team Modal #}
 
 {% if (is_admin or captain_team_ids or user_role == 'viewer') and allocation_leagues %}
 <style>
@@ -115,7 +114,7 @@
   .alloc-ts.pending .ts-control { border-color: #ffc107 !important; border-style: solid !important; background-color: rgba(255,193,7,0.12) !important; color: #212529 !important; }
 </style>
 
-<hr class="border-secondary my-5">
+<div id="teams-alloc-section" class="d-none">
 
 <div id="allocation-section" class="mb-5">
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -191,7 +190,7 @@
                   {% set entry = fix_data.home_squad[i] %}
                   {% set played = entry.player_id in fix_data.played_ids %}
                   {% if played %}
-                  <span class="badge player-badge-played"
+                  <span class="badge player-badge-played {% if entry.player.membership_status == 'inactive' %}player-inactive{% endif %}"
                         title="Played"
                         data-player-id="{{ entry.player_id }}">
                     {{ entry.player.name }} <i class="bi bi-check2"></i>
@@ -202,7 +201,8 @@
                     <option value=""></option>
                     <option value="{{ entry.player_id }}" selected
                             {% if squad_meta.would_commit %}data-would-commit="1"{% endif %}
-                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}>{{ entry.player.name }}</option>
+                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}
+                            {% if entry.player.membership_status == 'inactive' %}style="color:#999"{% endif %}>{{ entry.player.name }}</option>
                     {% for p in fix_data.home_eligible %}
                     {% set meta = fix_data.home_player_meta.get(p.id, {}) %}
                     <option value="{{ p.id }}"
@@ -212,7 +212,7 @@
                     {% endfor %}
                   </select>
                   {% else %}
-                  <span class="badge player-badge-squad">{{ entry.player.name }}</span>
+                  <span class="badge player-badge-squad {% if entry.player.membership_status == 'inactive' %}player-inactive{% endif %}">{{ entry.player.name }}</span>
                   {% endif %}
                 {% elif can_edit_home and fix_data.home_eligible %}
                   <select class="alloc-player-add" data-placeholder="+ Add">
@@ -249,7 +249,7 @@
                   {% set entry = fix_data.away_squad[i] %}
                   {% set played = entry.player_id in fix_data.played_ids %}
                   {% if played %}
-                  <span class="badge player-badge-played"
+                  <span class="badge player-badge-played {% if entry.player.membership_status == 'inactive' %}player-inactive{% endif %}"
                         title="Played"
                         data-player-id="{{ entry.player_id }}">
                     {{ entry.player.name }} <i class="bi bi-check2"></i>
@@ -260,7 +260,8 @@
                     <option value=""></option>
                     <option value="{{ entry.player_id }}" selected
                             {% if squad_meta.would_commit %}data-would-commit="1"{% endif %}
-                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}>{{ entry.player.name }}</option>
+                            {% if squad_meta.commitment_info %}data-commitment-info="{{ squad_meta.commitment_info }}"{% endif %}
+                            {% if entry.player.membership_status == 'inactive' %}style="color:#999"{% endif %}>{{ entry.player.name }}</option>
                     {% for p in fix_data.away_eligible %}
                     {% set meta = fix_data.away_player_meta.get(p.id, {}) %}
                     <option value="{{ p.id }}"
@@ -270,7 +271,7 @@
                     {% endfor %}
                   </select>
                   {% else %}
-                  <span class="badge player-badge-squad">{{ entry.player.name }}</span>
+                  <span class="badge player-badge-squad {% if entry.player.membership_status == 'inactive' %}player-inactive{% endif %}">{{ entry.player.name }}</span>
                   {% endif %}
                 {% elif can_edit_away and fix_data.away_eligible %}
                   <select class="alloc-player-add" data-placeholder="+ Add">
@@ -329,7 +330,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p>Saving this squad will tie the following player(s) to this team for the rest of the season — they will no longer be eligible for lower divisions:</p>
+        <p>Saving this squad will tie the following player(s) to this team for the rest of the season — they will no longer be eligible for lower-ranked teams:</p>
         <ul id="alloc-commit-player-list" class="mb-3"></ul>
         <p class="mb-0 text-muted small">Do you want to continue?</p>
       </div>
@@ -403,7 +404,10 @@
 
   function _navigateToTeams(leagueId) {
     _navigating = true;
-    var target = '/teams' + (leagueId ? '?league=' + leagueId : '');
+    var params = new URLSearchParams();
+    params.set('view', 'allocation');
+    if (leagueId) params.set('league', leagueId);
+    var target = '/teams?' + params.toString();
     if ((location.pathname + location.search) === target) {
       location.reload();
     } else {
@@ -492,7 +496,7 @@
       return ' <i class="bi bi-patch-check text-success" title="Tied to this team for the season"></i>';
     }
     if (meta.would_commit) {
-      return ' <i class="bi bi-exclamation-triangle text-warning" title="Selecting this player will block them from playing for lower-division teams for the rest of the season."></i>';
+      return ' <i class="bi bi-exclamation-triangle text-warning" title="Selecting this player will block them from playing for lower-ranked teams for the rest of the season."></i>';
     }
     return '';
   }
@@ -631,13 +635,12 @@
     if (btn) saveWeek(btn.closest('.alloc-week-card'));
   });
 
-  // Auto-select league from ?league= query param (set after saving)
+  // Auto-select league from ?league= query param (set after saving) — otherwise
+  // leave unselected so the placeholder shows, even when only one league exists.
   var params = new URLSearchParams(location.search);
   var preselect = params.get('league');
   if (preselect) {
     select.value = preselect;
-  } else if (select.options.length === 2) {
-    select.selectedIndex = 1;
   }
   showLeague();
 
@@ -693,8 +696,10 @@
 }());
 </script>
 
+</div>{# /teams-alloc-section #}
 {% endif %}
 
+<div id="teams-list-section">
 {% if teams %}
 
 {# Partition teams into four buckets #}
@@ -708,62 +713,84 @@
   {% endif %}
 {% endfor %}
 
-{% set sections = [
-  ("Men's",   "bi-people-fill",  "bg-primary",   ns.mens),
-  ("Women's", "bi-people-fill",  "bg-pink",       ns.womens),
-  ("Mixed",   "bi-people-fill",  "bg-success",    ns.mixed),
-  ("Other / Unassigned", "bi-people", "bg-secondary", ns.other),
-] %}
+{# Group Men's/Women's/Mixed teams together by league season, so the league
+   heading spans all three gender columns (matching the Leagues page) with a
+   Men's/Women's/Mixed sub-heading inside each column. #}
+{% set groups = namespace(list=[]) %}
+{% for team in ns.mens + ns.womens + ns.mixed %}
+    {% set cat = league_category(team) | trim %}
+    {% set g_colour = team.division.league.parent_league.colour if (team.division and team.division.league.parent_league) else '#6c757d' %}
+    {% set g_year_parts = team.division.league.name.split() if team.division else [] %}
+    {% set g_year = g_year_parts[-1] if (g_year_parts and g_year_parts[-1].isdigit()) else '' %}
+    {% if team.division and team.division.league.parent_league %}
+        {% set g_label = team.division.league.parent_league.name ~ (' ' ~ g_year if g_year else '') %}
+    {% elif team.division %}
+        {% set g_label = team.division.league.name %}
+    {% else %}
+        {% set g_label = 'Unassigned' %}
+    {% endif %}
+    {% set existing = groups.list | selectattr('label', 'equalto', g_label) | list %}
+    {% if existing %}
+        {% set _ = existing[0][cat].append(team) %}
+    {% else %}
+        {% set new_group = {'label': g_label, 'colour': g_colour, 'mens': [], 'womens': [], 'mixed': []} %}
+        {% set _ = new_group[cat].append(team) %}
+        {% set _ = groups.list.append(new_group) %}
+    {% endif %}
+{% endfor %}
 
-{% for section_label, section_icon, badge_class, section_teams in sections %}
-{% if section_teams %}
+{% for group in groups.list %}
+{% set group_text_colour = contrast_text(group.colour) | trim %}
+{% set group_overlay = 'rgba(255,255,255,0.28)' if group_text_colour == '#ffffff' else 'rgba(0,0,0,0.12)' %}
+{% set group_id = 'teamgrp-' ~ loop.index %}
+{% set group_total = (group.mens|length) + (group.womens|length) + (group.mixed|length) %}
+<div class="mb-4">
+    <button class="btn w-100 d-flex justify-content-between align-items-center team-group-toggle"
+            type="button" data-bs-toggle="collapse" data-bs-target="#{{ group_id }}"
+            aria-expanded="true" aria-controls="{{ group_id }}"
+            style="background-color: {{ group.colour }}; color: {{ group_text_colour }}; border: none;">
+        <span class="fw-semibold text-truncate">
+            <i class="bi bi-trophy me-2" aria-hidden="true"></i>{{ group.label }}
+        </span>
+        <span class="d-flex align-items-center gap-2 flex-shrink-0">
+            <span class="badge" style="background-color: {{ group_overlay }}; color: {{ group_text_colour }};">{{ group_total }}</span>
+            <i class="bi bi-chevron-down team-group-chevron" aria-hidden="true"></i>
+        </span>
+    </button>
+    <div class="collapse show mt-2" id="{{ group_id }}">
+        <div class="row g-4">
+            {% for section_label, section_teams in [("Men's", group.mens), ("Women's", group.womens), ("Mixed", group.mixed)] %}
+            <div class="col-lg-4">
+                <h6 class="text-white-50 small text-uppercase mb-2">{{ section_label }}</h6>
+                {% if section_teams %}
+                <div class="row g-3">
+                    {% for team in section_teams %}
+                    {{ team_card(team, 'col-12', live_team_ids) }}
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-white-50 small">No teams.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% if ns.other %}
 <div class="mb-5">
     <h4 class="text-white mb-3">
-        <i class="bi {{ section_icon }} me-2"></i>{{ section_label }}
-        <span class="badge {{ badge_class }} ms-2 fs-6">{{ section_teams | length }}</span>
+        <i class="bi bi-people me-2" aria-hidden="true"></i>Other / Unassigned
+        <span class="text-white-50 ms-2 fs-6">({{ ns.other | length }})</span>
     </h4>
-    <div class="row g-4">
-        {% for team in section_teams %}
-        <div class="col-md-6 col-lg-4">
-            <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-people-fill me-2"></i>{{ team.name }}</span>
-                    <span class="badge bg-light text-dark">{{ (team.players|list)|length }} players</span>
-                </div>
-                <div class="card-body">
-                    {% if team.division %}
-                    <div class="mb-3">
-                        <span class="badge {{ badge_class }}">{{ team.division.league.name }} — {{ team.division.name }}</span>
-                    </div>
-                    {% endif %}
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div>
-                            <div class="text-muted small">Home fixtures</div>
-                            <div class="fw-bold">{{ (team.home_fixtures|list)|length }}</div>
-                        </div>
-                        <div>
-                            <div class="text-muted small">Away fixtures</div>
-                            <div class="fw-bold">{{ (team.away_fixtures|list)|length }}</div>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-1">
-                        <a href="{{ url_for('team_detail', team_id=team.id) }}" class="btn btn-tennis flex-grow-1">
-                            View <i class="bi bi-arrow-right ms-1"></i>
-                        </a>
-                        {% if is_admin %}
-                        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteTeamModal{{ team.id }}" title="Delete team">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="row g-3">
+        {% for team in ns.other %}
+        {{ team_card(team, 'col-6 col-md-4 col-lg-3 col-xl-2', live_team_ids) }}
         {% endfor %}
     </div>
 </div>
 {% endif %}
-{% endfor %}
 
 {% if is_admin %}
 <!-- Delete Team Modals -->
@@ -805,5 +832,41 @@
         <p class="text-muted">Add your first team to get started.</p>
     </div>
 </div>
+{% endif %}
+</div>{# /teams-list-section #}
+
+{% if (is_admin or captain_team_ids or user_role == 'viewer') and allocation_leagues %}
+<script>
+(function () {
+  var listBtn = document.getElementById('teams-view-list-btn');
+  var allocBtn = document.getElementById('teams-view-alloc-btn');
+  var listSection = document.getElementById('teams-list-section');
+  var allocSection = document.getElementById('teams-alloc-section');
+
+  function setView(view, updateUrl) {
+    var isAlloc = view === 'allocation';
+    listSection.classList.toggle('d-none', isAlloc);
+    allocSection.classList.toggle('d-none', !isAlloc);
+    listBtn.classList.toggle('active', !isAlloc);
+    listBtn.classList.toggle('btn-light', !isAlloc);
+    listBtn.classList.toggle('btn-outline-light', isAlloc);
+    allocBtn.classList.toggle('active', isAlloc);
+    allocBtn.classList.toggle('btn-light', isAlloc);
+    allocBtn.classList.toggle('btn-outline-light', !isAlloc);
+    if (updateUrl) {
+      var params = new URLSearchParams(location.search);
+      if (isAlloc) { params.set('view', 'allocation'); } else { params.delete('view'); }
+      var qs = params.toString();
+      history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+    }
+  }
+
+  listBtn.addEventListener('click', function () { setView('list', true); });
+  allocBtn.addEventListener('click', function () { setView('allocation', true); });
+
+  var initialView = new URLSearchParams(location.search).get('view') === 'allocation' ? 'allocation' : 'list';
+  setView(initialView, false);
+}());
+</script>
 {% endif %}
 {% endblock %}

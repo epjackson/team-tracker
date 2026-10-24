@@ -1,0 +1,40 @@
+{% extends "pitchside_base.html" %}
+{% block title %}Captain Login — Match Day{% endblock %}
+{% block header_action %}<a href="{{ url_for('index') }}"><i class="bi bi-arrow-left me-1"></i>Back to site</a>{% endblock %}
+
+{% block content %}
+<div class="text-center mb-4 mt-3">
+    <h4 class="text-white mb-1">Captain Match-Day Login</h4>
+    <p class="text-white-50 small mb-0">
+        Enter your email and the last 4 digits of your LTA number to fill in
+        today's scoresheet from courtside.
+    </p>
+</div>
+<div class="card">
+    <div class="card-body p-4">
+        <form method="POST">
+            <div class="mb-3">
+                <label class="form-label">Email address</label>
+                <input type="email" class="form-control form-control-lg" name="email"
+                       required autofocus autocomplete="email" placeholder="you@example.com">
+            </div>
+            <div class="mb-4">
+                <label class="form-label">Last 4 digits of your LTA number</label>
+                <input type="text" class="form-control form-control-lg" name="lta_last4"
+                       inputmode="numeric" maxlength="4" required autocomplete="off"
+                       placeholder="1234">
+            </div>
+            <div class="d-grid">
+                <button type="submit" class="btn btn-tennis btn-lg">
+                    <i class="bi bi-unlock me-1"></i>Continue
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<p class="text-white-50 small text-center mt-4">
+    This is a separate, lightweight login just for match-day entry — it doesn't
+    affect the club's real fixture records until an admin or captain reviews and
+    confirms it afterwards.
+</p>
+{% endblock %}
