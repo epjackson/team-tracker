@@ -680,6 +680,23 @@ class RubberSlot:
         self.away_slots = away_slots
 
 
+def autumn_away_rubber_number(away_pair, column, n_pairs):
+    """Physical rubber_number for an away pair's cell in a dual-club Autumn fixture.
+
+    ``away_pair`` is the 0-based away pair, ``column`` the 1-based column in the
+    away grid. Rubbers are always stored home-pair-major
+    (rubber_number = home_pair*n_pairs + home_column + 1). 2-pair formats
+    (Autumn) use a plain transpose — column n is home pair n, so the away grid
+    is the home grid flipped. Other sizes (Summer's 3 pairs) keep the staggered
+    round-robin rotation, where column n is round n and the home pair faced is
+    (away_pair - n + 1) % n_pairs.
+    """
+    if n_pairs == 2:
+        return (column - 1) * n_pairs + away_pair + 1
+    home_pair = (away_pair - column + 1) % n_pairs
+    return home_pair * n_pairs + column
+
+
 def build_rubber_plan(league):
     """Return the ordered rubber plan (list of RubberSlot) for a league's format.
 

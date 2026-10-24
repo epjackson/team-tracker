@@ -61,6 +61,7 @@ from .models import (
     _division_rank,
     _league_year,
     _team_rank,
+    autumn_away_rubber_number,
     build_rubber_plan,
     check_player_eligibility,
     check_week_conflict,
@@ -792,6 +793,7 @@ def create_app(config=None):
         _migrate_match_day_draft_submitted_by(db)
 
     app.jinja_env.globals["fixture_round_label"] = fixture_round_label
+    app.jinja_env.globals["autumn_away_rubber_number"] = autumn_away_rubber_number
     app.jinja_env.globals["league_format_label"] = lambda fmt: LEAGUE_FORMAT_LABELS.get(fmt, fmt)
     app.jinja_env.globals["league_format_choices"] = LEAGUE_FORMAT_CHOICES
     app.jinja_env.globals["season_type_choices"] = SEASON_TYPE_CHOICES
@@ -4007,30 +4009,51 @@ def create_app(config=None):
             return err
         selected_ids = set(request.form.getlist("squad_player_ids", type=int))
         team_id = request.form.get("team_id", type=int)
-        if team_id:
-            # Dual-Yarm: only replace this team's entries, preserving the other team's.
-            previous_ids = {
+        both_yarm = fixture.home_team_id is not None and fixture.away_team_id is not None
+        # Must replace exactly the rows fixture_detail displayed as this squad, or a
+        # leftover row (e.g. team_id NULL) collides with uq_fixture_player_squad on re-insert.
+        existing_q = FixtureSquadEntry.query.filter_by(fixture_id=fixture_id)
+        other_team_ids = set()
+        if both_yarm and team_id:
+            # Dual-Yarm: only replace this team's entries (plus untagged legacy rows,
+            # which neither side's view shows), preserving the other team's.
+            existing_q = existing_q.filter(
+                db.or_(FixtureSquadEntry.team_id == team_id, FixtureSquadEntry.team_id.is_(None))
+            )
+            other_team_ids = {
                 e.player_id
-                for e in FixtureSquadEntry.query.filter_by(
-                    fixture_id=fixture_id, team_id=team_id
+                for e in FixtureSquadEntry.query.filter(
+                    FixtureSquadEntry.fixture_id == fixture_id,
+                    FixtureSquadEntry.team_id.isnot(None),
+                    FixtureSquadEntry.team_id != team_id,
                 ).all()
             }
-            FixtureSquadEntry.query.filter_by(fixture_id=fixture_id, team_id=team_id).delete()
-        else:
-            previous_ids = {
-                e.player_id for e in FixtureSquadEntry.query.filter_by(fixture_id=fixture_id).all()
-            }
-            FixtureSquadEntry.query.filter_by(fixture_id=fixture_id).delete()
-        for pid in selected_ids:
-            player = Player.query.get(pid)
-            # An inactive player can't be newly added, but stays if they were already
-            # reserved (e.g. before being deactivated) and the form re-submits them.
-            if player and (player.membership_status == "active" or pid in previous_ids):
-                db.session.add(
-                    FixtureSquadEntry(fixture_id=fixture_id, player_id=pid, team_id=team_id)
-                )
+        previous_ids = {e.player_id for e in existing_q.all()}
+        existing_q.delete(synchronize_session=False)
+        skipped = []
+        with db.session.no_autoflush:
+            for pid in selected_ids:
+                player = Player.query.get(pid)
+                if not player:
+                    continue
+                if pid in other_team_ids:
+                    # Already reserved by the other Yarm team in this fixture.
+                    skipped.append(player.name)
+                    continue
+                # An inactive player can't be newly added, but stays if they were already
+                # reserved (e.g. before being deactivated) and the form re-submits them.
+                if player.membership_status == "active" or pid in previous_ids:
+                    db.session.add(
+                        FixtureSquadEntry(fixture_id=fixture_id, player_id=pid, team_id=team_id)
+                    )
         db.session.commit()
         flash("Squad saved.", "success")
+        if skipped:
+            flash(
+                "Not added (already in the other team's squad for this fixture): "
+                + ", ".join(sorted(skipped)),
+                "warning",
+            )
         redirect_kwargs = {"fixture_id": fixture_id}
         if team_id:
             redirect_kwargs["team_id"] = team_id
@@ -4437,11 +4460,10 @@ def create_app(config=None):
 
             if both_yarm and not yarm_is_home:
                 # Away team: save player pair assignments and scores bi-directionally.
-                # Staggered round-robin rotation: away pair i plays home pair c_idx in
-                # round n_col (n_col ranges over all rubber_count rounds, a genuine
-                # round-robin — not a fixed 3). The rubber is stored under the HOME
-                # pair's slot: rubber_number = c_idx*rubber_count + n_col, matching
-                # build_rubber_plan()'s numbering.
+                # Away pair i's cell in column n_col is stored under the HOME pair's
+                # slot (home-pair-major, matching build_rubber_plan()'s numbering);
+                # see autumn_away_rubber_number() for the 2-pair transpose vs the
+                # larger-format rotation.
                 existing_rubbers = {
                     r.rubber_number: r for r in fixture.rubbers.order_by(Rubber.rubber_number).all()
                 }
@@ -4455,8 +4477,7 @@ def create_app(config=None):
                     pid2 = request.form.get(f"rubber_{i}_home_player_2", type=int)
                     away_played_pids.update(p for p in [pid1, pid2] if p)
                     for n_col in range(1, rubber_count + 1):
-                        c_idx = (i - n_col + 1) % rubber_count
-                        rubber_number = c_idx * rubber_count + n_col
+                        rubber_number = autumn_away_rubber_number(i, n_col, rubber_count)
                         rubber = existing_rubbers.get(rubber_number)
                         if rubber is None:
                             rubber = Rubber(

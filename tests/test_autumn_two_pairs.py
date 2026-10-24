@@ -182,9 +182,10 @@ def test_home_perspective_second_pair_addresses_its_own_rubbers(app):
 def test_away_perspective_two_pairs_land_on_correct_non_overlapping_rubbers(app):
     """The away side's pair submissions must attach to the correct rubbers.
 
-    They must attach to exactly the rubbers the round-robin rotation assigns
-    them, matching the home side's own (never-buggy) numbering — otherwise a
-    dual-Yarm fixture's independently-submitted home scores and away player
+    With 2 pairs the away grid is the plain transpose of the home grid (column n
+    is home pair n). They must attach to exactly those rubbers, matching the
+    home side's own (never-buggy) numbering — otherwise a dual-Yarm
+    fixture's independently-submitted home scores and away player
     names merge onto the wrong rows. Each home pair's rubbers are tagged with
     a distinctive marker score (home_set1 = rubber_number) so we can tell
     exactly which physical rubber an away pair's players ended up on.
@@ -216,7 +217,7 @@ def test_away_perspective_two_pairs_land_on_correct_non_overlapping_rubbers(app)
     assert resp.status_code == 302
 
     # Away separately submits its own 2 pairs' player names, with no score
-    # fields at all — only the pairing rotation should decide which physical
+    # fields at all — only the pairing mapping should decide which physical
     # rubbers get these PlayerMatchResult rows.
     away_form = {
         "team_id": str(away.id),
@@ -241,9 +242,60 @@ def test_away_perspective_two_pairs_land_on_correct_non_overlapping_rubbers(app)
                 markers.add(rubber.home_set1)
         return markers
 
-    # Away pair 0 faces home pair 0 (round 1, rubber 1) and home pair 1
-    # (round 2, rubber 4) via oppIndex(0, n) = (0-n+1) % 2.
-    assert markers_for({ap1a.id, ap1b.id}) == {1, 4}
-    # Away pair 1 faces home pair 1 (round 1, rubber 3) and home pair 0
-    # (round 2, rubber 2) via oppIndex(1, n) = (1-n+1) % 2.
-    assert markers_for({ap2a.id, ap2b.id}) == {2, 3}
+    # Home rubbers are home-pair-major: R1/R2 = home pair 0 v away pair 0/1,
+    # R3/R4 = home pair 1 v away pair 0/1. Away pair 0 therefore plays R1 and R3,
+    # away pair 1 plays R2 and R4 (the home grid transposed).
+    assert markers_for({ap1a.id, ap1b.id}) == {1, 3}
+    assert markers_for({ap2a.id, ap2b.id}) == {2, 4}
+
+
+def test_away_view_grid_is_transpose_of_home_grid_for_two_pairs(app):
+    """Away view: row = away pair, column = home pair (Opposition n)."""
+    import re
+
+    league, home, away, fixture = _make_fixture(pairs_per_round=2)
+    hp = [(_player("HP1", "A"), _player("HP1", "B")), (_player("HP2", "A"), _player("HP2", "B"))]
+    ap = [(_player("AP1", "A"), _player("AP1", "B")), (_player("AP2", "A"), _player("AP2", "B"))]
+    db.session.commit()
+    client = _admin_client(app)
+
+    form = {"team_id": str(home.id), "rubber_count": "2"}
+    for i in range(2):
+        form[f"rubber_{i}_home_player_1"] = str(hp[i][0].id)
+        form[f"rubber_{i}_home_player_2"] = str(hp[i][1].id)
+        for n in (1, 2):
+            form[f"rubber_{i}_opp{n}_yarm_set1"] = str(i * 2 + n)  # marker = rubber number
+            form[f"rubber_{i}_opp{n}_opp_set1"] = "0"
+    client.post(f"/fixtures/{fixture.id}/rubbers/save", data=form)
+    form = {"team_id": str(away.id), "rubber_count": "2"}
+    for i in range(2):
+        form[f"rubber_{i}_home_player_1"] = str(ap[i][0].id)
+        form[f"rubber_{i}_home_player_2"] = str(ap[i][1].id)
+    client.post(f"/fixtures/{fixture.id}/rubbers/save", data=form)
+
+    def grid(team, side_key):
+        html = client.get(f"/fixtures/{fixture.id}?team_id={team.id}").get_data(as_text=True)
+        return [
+            [
+                int(v)
+                for _, v in re.findall(
+                    rf'name="rubber_{i}_opp(\d)_{side_key}_set1"[^>]*value="(\d+)"', html
+                )
+            ]
+            for i in range(2)
+        ]
+
+    # Home grid: rows = home pair, columns = away pair; marker == rubber number.
+    assert grid(home, "yarm") == [[1, 2], [3, 4]]
+    # Away grid: row 1 = [AP1 v HP1, AP1 v HP2], row 2 = [AP2 v HP1, AP2 v HP2].
+    assert grid(away, "opp") == [[1, 3], [2, 4]]
+
+
+def test_away_perspective_three_pairs_keep_rotation(app):
+    """3-pair formats (Summer) keep the staggered rotation, not the transpose."""
+    from app.models import autumn_away_rubber_number
+
+    n = 3
+    cells = {i: [autumn_away_rubber_number(i, col, n) for col in range(1, n + 1)] for i in range(n)}
+    assert cells == {0: [1, 8, 6], 1: [4, 2, 9], 2: [7, 5, 3]}
+    assert sorted(r for row in cells.values() for r in row) == list(range(1, 10))

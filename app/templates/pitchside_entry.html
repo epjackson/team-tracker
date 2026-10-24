@@ -132,18 +132,23 @@ ALL_PLAYER_NAMES.forEach(function (name) {
 function mod(n, m) {
     return ((n % m) + m) % m;
 }
+// 2-pair formats (Autumn) use a plain grid: column n is opposition pair n, and an
+// away entrant's grid is the home grid transposed. Larger formats (Summer's 3
+// pairs) keep the staggered round-robin rotation, where column n is round n.
+// Mirrors autumn_away_rubber_number() in models.py.
+const TRANSPOSED = N_PAIRS === 2;
 function oppIndex(i, n) {
-    return mod(i - n + 1, N_PAIRS);
+    return TRANSPOSED ? n - 1 : mod(i - n + 1, N_PAIRS);
 }
-// Storage/draft position for "my pair i, round n", always in HOME-pair-major
-// order (matching build_rubber_plan()'s rubber_number = home_i*N_ROUNDS+round
-// and save_rubbers' away-branch transposition) regardless of MY_SIDE — when
-// MY_SIDE is 'away', the home pair faced this round is oppIndex(i, n), not i
-// itself. manual_fixture_entry's confirm path trusts array position as the
-// canonical rubber number verbatim, so this must never be MY_SIDE's own index.
+// Storage/draft position for "my pair i, column n", always in HOME-pair-major
+// order (matching build_rubber_plan()'s rubber_number = home_pair*N + column)
+// regardless of MY_SIDE. manual_fixture_entry's confirm path trusts array
+// position as the canonical rubber number verbatim, so this must never be
+// MY_SIDE's own pair index for an away entrant.
 function flatIndex(i, n) {
-    const homeI = MY_SIDE === 'home' ? i : oppIndex(i, n);
-    return homeI * N_ROUNDS + (n - 1);
+    if (MY_SIDE === 'home') return i * N_ROUNDS + (n - 1);
+    if (TRANSPOSED) return (n - 1) * N_PAIRS + i;
+    return oppIndex(i, n) * N_ROUNDS + (n - 1);
 }
 
 // ── Fixed-squad formats (cleveland_veterans, ne_winter) ─────────────────────
@@ -416,7 +421,7 @@ function buildScoresStep() {
             rowsHtml += `
                 <div class="rubber-row rubber-card ${idx > 0 ? 'border-top' : ''}" data-i="${i}" data-n="${n}" data-walkover="">
                     <div class="rubber-row-info">
-                        <div class="rubber-round text-muted">Round ${n}</div>
+                        <div class="rubber-round text-muted">${TRANSPOSED ? 'Rubber' : 'Round'} ${n}</div>
                         <div class="rubber-label fw-semibold text-dark" data-i="${i}" data-n="${n}" data-j="${j}">
                             vs Opponent ${j + 1}
                         </div>

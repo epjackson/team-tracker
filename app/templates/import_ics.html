@@ -38,6 +38,7 @@
                             {% set mens_teams = [] %}
                             {% set womens_teams = [] %}
                             {% set mixed_teams = [] %}
+                            {% set other_teams = [] %}
                             {% for team in teams %}
                                 {% set n = team.name | lower %}
                                 {% if "women" in n or "ladies" in n %}
@@ -46,6 +47,9 @@
                                     {% set _ = mixed_teams.append(team) %}
                                 {% elif "men" in n %}
                                     {% set _ = mens_teams.append(team) %}
+                                {% else %}
+                                    {# e.g. Veterans teams ("Yarm A Veterans") carry no discipline word #}
+                                    {% set _ = other_teams.append(team) %}
                                 {% endif %}
                             {% endfor %}
                             {% if mens_teams %}
@@ -65,6 +69,13 @@
                             {% if mixed_teams %}
                             <optgroup label="Mixed">
                                 {% for team in mixed_teams %}
+                                <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                            {% if other_teams %}
+                            <optgroup label="Other">
+                                {% for team in other_teams %}
                                 <option value="{{ team.id }}" data-league-id="{{ team.division.league_id if team.division else '' }}">{{ team.name }}{% if team.division and team.division.league %} — {{ team.division.league.name }}{% endif %}</option>
                                 {% endfor %}
                             </optgroup>
