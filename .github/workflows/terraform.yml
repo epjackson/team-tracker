@@ -1,0 +1,136 @@
+---
+name: Terraform
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".tflint.hcl"
+      - ".checkov.yaml"
+      - ".terraform-docs.yml"
+      - ".github/workflows/terraform.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".tflint.hcl"
+      - ".checkov.yaml"
+      - ".terraform-docs.yml"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: "1.15.5"
+  TFLINT_VERSION: "v0.65.0"
+  TERRAFORM_DOCS_VERSION: "v0.24.0"
+
+jobs:
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd    # v6.0.2
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e    # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive -diff terraform
+
+  validate:
+    name: terraform validate (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, preview, prod]
+    defaults:
+      run:
+        working-directory: terraform/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd    # v6.0.2
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e    # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # -backend=false: no credentials or state needed, providers only
+      - name: Init
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        run: terraform validate -no-color
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd    # v6.0.2
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9    # v6.1.0
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ runner.os }}-${{ hashFiles('.tflint.hcl') }}
+
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337    # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: Init plugins
+        run: tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+        env:
+          # Avoids GitHub API rate limits when downloading the google ruleset
+          GITHUB_TOKEN: ${{ github.token }}
+
+      # Warnings are reported in the log but only errors fail the build
+      - name: Lint
+        run: |
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" \
+            --minimum-failure-severity=error --format compact
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd    # v6.0.2
+
+      - name: Scan Terraform
+        uses: bridgecrewio/checkov-action@c3e106d5f8f4253a6de5110efb41a080f83db294    # v12.3135.0
+        with:
+          directory: terraform
+          config_file: .checkov.yaml
+          output_format: cli
+          compact: true
+          quiet: true
+
+  terraform-docs:
+    name: terraform-docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd    # v6.0.2
+
+      - name: Install terraform-docs
+        run: |
+          base=https://github.com/terraform-docs/terraform-docs/releases/download
+          file="terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz"
+          curl -sSLo terraform-docs.tar.gz "$base/$TERRAFORM_DOCS_VERSION/$file"
+          tar -xzf terraform-docs.tar.gz terraform-docs
+          sudo mv terraform-docs /usr/local/bin/
+          rm terraform-docs.tar.gz
+
+      - name: Check module READMEs are up to date
+        run: |
+          status=0
+          for dir in terraform/dev terraform/preview terraform/prod \
+                     terraform/src terraform/src/app terraform/src/firebase; do
+            if ! terraform-docs -c .terraform-docs.yml --output-check "$dir"; then
+              echo "::error file=$dir/README.md::Out of date. Run:" \
+                "terraform-docs -c .terraform-docs.yml $dir"
+              status=1
+            fi
+          done
+          exit $status

@@ -36,7 +36,7 @@ resource "google_iap_settings" "app_engine" {
     }
     gcip_settings {
       login_page_uri = "https://${var.gcip_login_page_base_uri}?apiKey=${data.google_secret_manager_secret_version.firebase_api_key.secret_data}"
-      tenant_ids = ["_${data.google_project.current.number}"]
+      tenant_ids     = ["_${data.google_project.current.number}"]
     }
   }
 }

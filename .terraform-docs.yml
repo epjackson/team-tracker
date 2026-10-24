@@ -1,0 +1,19 @@
+---
+# terraform-docs configuration — regenerate module READMEs with:
+#   for d in terraform/{dev,preview,prod,src,src/app,src/firebase}; do
+#     terraform-docs -c .terraform-docs.yml "$d"; done
+# CI fails if any README is out of date (.github/workflows/terraform.yml).
+formatter: markdown table
+
+output:
+  file: README.md
+  mode: inject
+
+sort:
+  enabled: true
+  by: required
+
+settings:
+  anchor: false
+  hide-empty: true
+  lockfile: false

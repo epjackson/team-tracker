@@ -19,7 +19,7 @@ locals {
 # (bucket names under appspot.com require domain ownership verification).
 resource "google_project_iam_member" "appengine_sa" {
   for_each = toset(local.appengine_sa_roles)
-  project = var.project_id
-  role    = each.key
-  member  = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  project  = var.project_id
+  role     = each.key
+  member   = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
 }
