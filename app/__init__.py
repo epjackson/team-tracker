@@ -429,9 +429,7 @@ def _migrate_away_team_nullable(db):
     if not needs_migration:
         return
     with db.engine.begin() as conn:
-        conn.execute(
-            text(
-                """
+        conn.execute(text("""
                 CREATE TABLE fixtures_new (
                     id INTEGER NOT NULL PRIMARY KEY,
                     date DATE NOT NULL,
@@ -443,9 +441,7 @@ def _migrate_away_team_nullable(db):
                     source_image VARCHAR(512),
                     created_at DATETIME
                 )
-                """
-            )
-        )
+                """))
         conn.execute(text("INSERT INTO fixtures_new SELECT * FROM fixtures"))
         conn.execute(text("DROP TABLE fixtures"))
         conn.execute(text("ALTER TABLE fixtures_new RENAME TO fixtures"))
@@ -472,9 +468,7 @@ def _migrate_team_captains(db):
     inspector = sa_inspect(db.engine)
     if not inspector.has_table("team_captains"):
         with db.engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
+            conn.execute(text("""
                     CREATE TABLE team_captains (
                         id INTEGER NOT NULL PRIMARY KEY,
                         player_id INTEGER NOT NULL REFERENCES players (id),
@@ -483,9 +477,7 @@ def _migrate_team_captains(db):
                         created_at DATETIME,
                         UNIQUE (team_id, season)
                     )
-                    """
-                )
-            )
+                    """))
 
 
 def _migrate_team_match_fees_enabled(db):
@@ -506,9 +498,7 @@ def _migrate_captain_users(db):
     inspector = sa_inspect(db.engine)
     if not inspector.has_table("captain_users"):
         with db.engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
+            conn.execute(text("""
                     CREATE TABLE captain_users (
                         uid VARCHAR(128) NOT NULL PRIMARY KEY,
                         email VARCHAR(200) NOT NULL,
@@ -516,9 +506,7 @@ def _migrate_captain_users(db):
                         sees_all_fixtures BOOLEAN NOT NULL DEFAULT 0,
                         created_at DATETIME
                     )
-                    """
-                )
-            )
+                    """))
 
 
 def _migrate_captain_users_sees_all_fixtures(db):
@@ -599,9 +587,7 @@ def _migrate_login_events(db):
     inspector = sa_inspect(db.engine)
     if not inspector.has_table("login_events"):
         with db.engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
+            conn.execute(text("""
                     CREATE TABLE login_events (
                         id INTEGER NOT NULL PRIMARY KEY,
                         uid VARCHAR(128) NOT NULL,
@@ -611,9 +597,7 @@ def _migrate_login_events(db):
                         logged_out_at DATETIME,
                         logout_reason VARCHAR(20)
                     )
-                    """
-                )
-            )
+                    """))
     else:
         cols = {c["name"] for c in inspector.get_columns("login_events")}
         if "logout_reason" not in cols:

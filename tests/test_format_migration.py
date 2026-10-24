@@ -26,8 +26,7 @@ def test_create_app_migrates_pre_format_database():
     try:
         conn = sqlite3.connect(path)
         c = conn.cursor()
-        c.execute(
-            """
+        c.execute("""
             CREATE TABLE parent_leagues (
                 id INTEGER NOT NULL PRIMARY KEY,
                 name VARCHAR(120) NOT NULL UNIQUE,
@@ -39,10 +38,8 @@ def test_create_app_migrates_pre_format_database():
                 tiebreak_at_games INTEGER NOT NULL,
                 created_at DATETIME
             )
-            """
-        )
-        c.execute(
-            """
+            """)
+        c.execute("""
             CREATE TABLE leagues (
                 id INTEGER NOT NULL PRIMARY KEY,
                 name VARCHAR(120) NOT NULL UNIQUE,
@@ -54,8 +51,7 @@ def test_create_app_migrates_pre_format_database():
                 parent_league_id INTEGER REFERENCES parent_leagues (id),
                 created_at DATETIME
             )
-            """
-        )
+            """)
         c.execute("INSERT INTO leagues (id, name) VALUES (1, 'Old League')")
         conn.commit()
         conn.close()
