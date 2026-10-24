@@ -50,7 +50,7 @@ repos:
 
   # Terraform: fmt + validate (local hooks so only tracked .tf files are touched,
   # never the gitignored *.tfvars, and only the dev/preview/prod roots are initialised).
-  # Needs local binaries: brew install terraform tflint terraform-docs
+  # Needs terraform on PATH; tflint + terraform-docs are auto-downloaded by their hooks below.
   # Skipped in ci.yml's lint job (SKIP env) — .github/workflows/terraform.yml covers them there.
   - repo: local
     hooks:
@@ -77,9 +77,14 @@ repos:
         args:
           - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
           - --args=--minimum-failure-severity=error
+          # Downloaded + cached by the hook if not on PATH; keep in sync with TFLINT_VERSION
+          # in .github/workflows/terraform.yml
+          - --hook-config=--tool-version=0.65.0
       - id: terraform_docs
         args:
           - --args=--config=.terraform-docs.yml
+          # Keep in sync with TERRAFORM_DOCS_VERSION in .github/workflows/terraform.yml
+          - --hook-config=--tool-version=0.24.0
 
   # Terraform security scan (pip-installed by pre-commit, no local binary needed)
   - repo: https://github.com/bridgecrewio/checkov
