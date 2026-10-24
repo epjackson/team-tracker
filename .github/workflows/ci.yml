@@ -29,6 +29,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run pre-commit checks
+        env:
+          # Terraform hooks run in .github/workflows/terraform.yml instead
+          SKIP: terraform_fmt,terraform_validate,terraform_tflint,terraform_docs,checkov
         run: |
           pre-commit run --all-files
 

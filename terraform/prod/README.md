@@ -32,7 +32,6 @@
 | ---- | ----------- | ---- | ------- | :------: |
 | app\_domain | The domain of the application. | `string` | n/a | yes |
 | app\_subdomain | The subdomain of the application. | `string` | n/a | yes |
-| billing\_account\_id | The ID of the billing account to link to the project. | `string` | n/a | yes |
 | gcip\_login\_page\_base\_uri | The base URI for the GCIP login page. | `string` | n/a | yes |
 | gcp\_env | The environment to deploy resources in (e.g. dev, staging, prod). | `string` | n/a | yes |
 | project\_id | The ID of the GCP project to create. | `string` | n/a | yes |
