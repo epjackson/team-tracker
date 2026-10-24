@@ -1,5 +1,5 @@
 ---
-# Dependabot: keeps Python, Terraform and GitHub Actions dependencies current.
+# Dependabot: keeps Python, Terraform, GitHub Actions and pre-commit dependencies current.
 # Docs: https://docs.github.com/code-security/dependabot
 
 version: 2
@@ -54,5 +54,21 @@ updates:
       prefix: "chore(ci)"
     groups:
       github-actions:
+        patterns:
+          - "*"
+
+  # pre-commit hook revs in .pre-commit-config.yaml (SHA-pinned; Dependabot
+  # keeps the `# frozen: vX.Y.Z` comments in sync and skips `repo: local` hooks)
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "pre-commit"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      pre-commit-hooks:
         patterns:
           - "*"
